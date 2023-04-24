@@ -1,0 +1,6 @@
+Package: obissdm
+Type: Package
+Title: Running massive SDMs for marine species from OBIS data
+Version: 0.0.1.0
+RoxygenNote: 7.2.3
+Language: en-US
