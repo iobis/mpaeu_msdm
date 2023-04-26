@@ -91,7 +91,7 @@ mp_get_occ <- function(sp,
   names(occs) <- database
   
   # Check for duplicates
-  occs_nodups <- mp_dup_check(occs, exclude = T, as_single = T)
+  occs_nodups <- mp_dup_check(occs)
   
   # Perform quality control
   occs_qc <- mp_qc_check(occs_nodups, ...)

@@ -24,7 +24,8 @@ mp_get_occ <- function(sp,
                        save_folder = "data/species/",
                        save_format = "parquet",
                        print.summary = F,
-                       verbose = F
+                       verbose = F,
+                       ...
 ){
   
   if (verbose) cli_inform(c("i" = "Downloading data for {sp}.",
@@ -59,11 +60,11 @@ mp_get_occ <- function(sp,
                           enddate = range_date[2],
                           geometry = study_area
                         ),
-                        gbif = rgbif::occ_data(
+                        gbif = as.data.frame(rgbif::occ_data(
                           scientificName = sp,
                           geometry = study_area,
                           eventDate = range_date
-                        )$data,
+                        )$data),
                         local = .mp_get_occ_local(
                           local_file[database[i]],
                           scientificName = sp,
@@ -84,7 +85,7 @@ mp_get_occ <- function(sp,
   occs_nodups <- mp_dup_check(occs, exclude = T, as_single = T)
   
   # Perform quality control
-  occs_qc <- mp_qc_check(occs_nodups)
+  occs_qc <- mp_qc_check(occs_nodups, ...)
   
   if (print.summary) {
     .mp_print_occ_get(sp,
