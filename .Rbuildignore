@@ -1,2 +1,7 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^LICENSE\.md$
+^data
+^drafts
+^drafts_data
+^drafts_functions
