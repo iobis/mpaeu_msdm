@@ -5,17 +5,18 @@
 \title{Retrieve occurrence records from OBIS and save in the standard format}
 \usage{
 mp_get_obis(
-  sci_names,
+  sci_names = NULL,
   start_year = 1950,
   save_format = "parquet",
   mode = "single",
-  save_acro = NULL
+  save_acro = NULL,
+  geom_wkt = NULL
 )
 }
 \arguments{
 \item{sci_names}{a single value or a vector containing scientific names or, ideally, AphiaID (\code{numeric})}
 
-\item{start_year}{the initial year from which occurrences should be get}
+\item{start_year}{the initial year from which occurrences should be get.}
 
 \item{save_format}{the format to save the files. Either "parquet" (recommended) or "csv"}
 
@@ -23,6 +24,12 @@ mp_get_obis(
 a single file containing all the records will be saved in the "data/raw" folder.}
 
 \item{save_acro}{in case of full export, an acronym to be added to the save file. If NULL, "full" is used.}
+
+\item{geom_wkt}{a WKT geometry. Can be supplied together with
+\code{sci_names}, in which case data will be downloaded only for this area,
+or alone, in which case all occurrence records in a certain area will be
+downloaded. To use the geometry alone, \code{mode} should be \code{"full"}.
+Should be simple, otherwise will fail.}
 }
 \value{
 Files saved
@@ -32,6 +39,6 @@ Retrieve occurrence records from OBIS and save in the standard format
 }
 \examples{
 \dontrun{
-
+mp_get_obis("Leptuca thayeri")
 }
 }

@@ -2,38 +2,98 @@
 % Please edit documentation in R/mp_get.R
 \name{mp_get_local}
 \alias{mp_get_local}
-\title{Retrieve occurrence records from local file for individual species and save in the standard format}
+\title{Retrieve occurrence records from local file for individual species and save
+in the standard format}
 \usage{
 mp_get_local(
   local_file,
-  database,
-  sci_name = NULL,
+  database_name,
+  sci_names = NULL,
   aphia_id = NULL,
   gbif_key = NULL,
-  save_format = "parquet"
+  save_format = "parquet",
+  progress = TRUE,
+  db_mode = FALSE,
+  sel_columns = NULL
 )
 }
 \arguments{
-\item{local_file}{the relative or absolute path to the file (or folder in case of parquet datasets)}
+\item{local_file}{the relative or absolute path to the file (or folder in
+case of parquet datasets).}
 
-\item{database}{the name of the database source, will be used to save the files}
+\item{database_name}{the name of the database source, will be used to save the
+files.}
 
-\item{sci_name}{the scientific name of the species. If \code{NULL}, then the aphia_id or gbif_key will be used instead (recommended)}
+\item{sci_names}{the scientific name of the species. If \code{NULL}, then the
+aphia_id or gbif_key will be used instead (recommended). For all cases can
+also be a \code{vector} of values (see details).}
 
-\item{aphia_id}{the AphiaID of the species}
+\item{aphia_id}{the AphiaID of the species. Can also be passed together with
+the GBIF key to ensure the file will be saved with the right AphiaID
+(otherwise it will be retrieved from WoRMS - see details).}
 
-\item{gbif_key}{the GBIF taxon key}
+\item{gbif_key}{the GBIF taxon key.}
 
-\item{save_format}{the format to save the file (either "parquet" or "csv"; recommended is "parquet")}
+\item{save_format}{the format to save the file (either "parquet" or "csv";
+recommended is "parquet").}
+
+\item{progress}{show progress bar (only if length of names > 1)}
+
+\item{db_mode}{if \code{TRUE}, then a \code{\link[duckdb:duckdb]{duckdb::duckdb()}} connection is used
+to query the file. This should be faster, specially when working with OBIS
+full export. However, for arrow datasets organized as a folder (e.g. GBIF
+downloads), using the standard mode is preferable.
+@param sel_columns enable to select just part of the available columns. This
+can considerably speed up the processing and reduce file size. Should be written
+as a single character string or a character vector.}
 }
 \value{
 individual file saved
 }
 \description{
-Retrieve occurrence records from local file for individual species and save in the standard format
+Retrieve occurrence records from local file for individual species and save
+in the standard format
+}
+\details{
+If you have a list of species, then it's possible to query through a vector of
+names, AphiaID or taxonKey. In that case, for each species the function will
+query the name from the database and save.
+
+The individual files are saved in a folder according to the AphiaID. For the
+cases in which a name is passed, the function will look in WoRMS for the
+AphiaID of the species. In the case a GBIF taxonKey is passed, then the
+function will first look for that name on the taxonomic backbone of GBIF
+(through \code{\link[rgbif:name_usage]{rgbif::name_usage()}}) and then search in WoRMS for the name. Thus, it's
+advised that when using GBIF keys you also supply their AphiaID equivalent
+(if you have it).
+\subsection{How Files are saved?}{
+
+Files will be saved on "data/species" (if the folder does not exist on the
+working directory it will be created) following a hive structure:
+\itemize{
+\item key='AphiaID of the species'
+\item date='date being generated'
+\item ftype='type of file, i.e., which database generated'
+}
+
+So, for a species with AphiaID 12345, from both OBIS and GBIF,
+downloaded on 2023-01-05, a folder would be structured as that:
+
+data/species/key=12345/date=20230105
+
+With the following folders inside:
+ftype=obis/
+ftype=gbif/
+
+Each with a file called spdata.parquet (or csv).
+
+This structure enables easy indexing and querying with multiple species, specially
+when working with parquet datasets. Each of those keys will become a filtering feature.
+For more details see \code{\link[arrow:open_dataset]{arrow::open_dataset()}}
+}
 }
 \examples{
 \dontrun{
-
+mp_get_local("data/full_obis.parquet", "obis", "Leptuca thayeri")
 }
 }

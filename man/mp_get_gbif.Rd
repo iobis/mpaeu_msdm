@@ -8,45 +8,54 @@ mp_get_gbif(
   sci_names = NULL,
   start_year = 1950,
   download_format = "SIMPLE_PARQUET",
-  remove_zip = T,
-  savelog = T,
+  remove_zip = TRUE,
+  savelog = TRUE,
   mode = "full",
-  area_only = FALSE,
   save_acro = NULL,
   geom_wkt = NULL
 )
 }
 \arguments{
-\item{sci_names}{a single value or a vector containing scientific names or, ideally, the taxon key (\code{numeric}).
-Note that if scientific names are supplied, the function will first fetch the names with the GBIF taxonomic backbone. In case
-it fails to find a match for one name, the function will return a list of non matched names. It is \strong{strongly} advised to use the taxon key.}
+\item{sci_names}{a single value or a vector containing scientific names or,
+ideally, the taxon key (\code{numeric}). Note that if scientific names are
+supplied, the function will first fetch the names with the GBIF taxonomic
+backbone. In case it fails to find a match for one name, the function will
+return a list of non matched names. It is \strong{strongly} advised to use the
+taxon key.}
 
 \item{start_year}{the initial year from which occurrences should be get}
 
-\item{download_format}{the format to download data from GBIF. For now, only "SIMPLE_PARQUET" is possible.}
+\item{download_format}{the format to download data from GBIF. The default is
+"SIMPLE_PARQUET".}
 
-\item{remove_zip}{\code{logical} indicating if the downloaded zip should be removed (\code{TRUE}).}
+\item{remove_zip}{\code{logical} indicating if the downloaded zip should be
+removed (\code{TRUE}).}
 
-\item{savelog}{\code{logical} indicating if a log file containing the GBIF download DOI should be saved (\code{TRUE}).}
+\item{savelog}{\code{logical} indicating if a log file containing the GBIF
+download DOI should be saved (\code{TRUE}).}
 
-\item{mode}{mode of export. Either "single" (for single species) or "full" for multiple species. When using "full",
-a single file containing all the records will be saved in the "data/raw" folder}
+\item{mode}{mode of export. Either "single" (for single species) or "full"
+for multiple species. When using "full", a single file containing all the
+records will be saved in the "data/raw" folder}
 
-\item{area_only}{if \code{TRUE}, then the scientific names are ignored, and the download will return
-all points within the \code{geom_wkt}. Note that this only works when \code{mode = "full"}}
+\item{save_acro}{in case of full export, an acronym to be added to the saved
+file. If NULL, "full" is used.}
 
-\item{save_acro}{in case of full export, an acronym to be added to the save file. If NULL, "full" is used.}
-
-\item{geom_wkt}{a WKT geometry to limit the download. Should be simple, otherwise will fail}
+\item{geom_wkt}{a WKT geometry. Can be supplied together with
+\code{sci_names}, in which case data will be downloaded only for this area,
+or alone, in which case all occurrence records in a certain area will be
+downloaded. To use the geometry alone, \code{mode} should be \code{"full"},
+otherwise will fail.}
 }
 \value{
-Files saved and, if not all species matched the taxonomic backbone, a \code{data.frame} containing the non matched names.
+Files saved and, if not all species matched the taxonomic backbone, a
+\code{data.frame} containing the non matched names.
 }
 \description{
 Retrieve occurrence records from GBIF and save in the standard format
 }
 \examples{
 \dontrun{
-
+mp_get_gbif("Leptuca thayeri", mode = "single")
 }
 }
