@@ -9,6 +9,7 @@ outqc_get_distances(
   base,
   target = NULL,
   agg_res = NULL,
+  try_closest = TRUE,
   outfolder = "distances",
   skip_exists = TRUE,
   mc_cores = NULL,
@@ -28,6 +29,11 @@ considerably speed up computation. Should be expressed in degrees.
 This same value will be used to save a coarser resolution file. If \code{target}
 is not provided and \code{agg_res} is, then the base file is aggregated and
 all the cells for the coarser resolution are used (see details).}
+
+\item{try_closest}{if \code{TRUE}, if the point lies in an invalid (empty) cell,
+the function will try to find the closest valid point. It will look into the 8
+adjacent cells. If there is still not one valid, this point is ignored.
+Only relevant if target is supplied.}
 
 \item{outfolder}{the folder where the files will be saved. If not existent,
 it will be created.}

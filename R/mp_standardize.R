@@ -14,6 +14,12 @@
 #' @param remove_land if \code{TRUE} remove points from land. If \code{sdm_base}
 #'   is supplied, will use it as reference. Otherwise, will use the
 #'   [obistools::check_onland()] function
+#' @param out_from_cell only relevant when prepare_sdm is set \code{TRUE}. When this
+#' option is \code{TRUE}, the function will first aggregate each dataset to 1 record per
+#' cell. Then it will run the outlier procedure again based on the new rarefied set (see details)
+#' @param narm_out if \code{TRUE} and \code{prepare_sdm = TRUE}, then the function
+#' will not only remove the outliers, but also any NA value that there is (cells
+#' for which no distance or environmental information was found)
 #'
 #' @return saved files (see details)
 #' @export
@@ -30,14 +36,21 @@
 #' and the year of the record.
 #' 3. If \code{remove_land} is \code{TRUE}, will remove points from land
 #' 4. If outlier removal methods were set as \code{TRUE}, it will tag (not remove)
-#' the outliers. Then, this file is saved, following this pattern:
+#' the outliers (using limit of removal as 0.05%, see [outqc_geo()] or [outqc_env()] for more details).
+#' Then, this file is saved, following this pattern:
 #' 
 #' species_folder/key=`SPECIES KEY`/date=`CURRENT DATE IN YMD FORMAT`/ftype=dupclean/spdata0.parquet
 #' 
 #' If you set prepare_sdm (there is no reason to not leave this as \code{TRUE}), then:
 #' 
 #' 1. The function will remove the outliers based on MAD (for environmental will
-#' consider only bathymetry). 
+#' consider only bathymetry). If \code{out_from_cell = TRUE}, this will be done
+#' based on a per-cell version of the dataset. This is recommended, because if you have
+#' a very dense region, in terms of points, this can influence the outlier removal procedure.
+#' Each dataset is converted to 1 per cell, then the equivalent cells in the aggregated
+#' distance layer are retrieved (for the whole set of data), duplicated points are removed and outliers are detected. 
+#' Any duplicated point (falling on the same point then other dataset) receives the same outlier status than its
+#' duplicate.
 #' 2. Then it will try to set one dataset to be used
 #' as independent evaluation data. First it will calculate the standard distance
 #' to assess how spread points are (spreadness in the rest of the doc)
@@ -82,6 +95,7 @@
 #'  
 #'  If this was the case, the evaluation dataset was incorporated in fitting (points were converted again
 #'  to 1 per cell, as some points could overlap).
+#'  
 #' 
 #' 
 #' @examples
@@ -95,7 +109,9 @@ mp_standardize <- function(species,
                            env_out = TRUE,
                            prepare_sdm = TRUE,
                            sdm_base = NULL,
-                           remove_land = TRUE
+                           remove_land = TRUE,
+                           out_from_cell = TRUE,
+                           narm_out = TRUE
 ) {
   
   if (remove_land & is.null(sdm_base)) {
@@ -178,7 +194,8 @@ mp_standardize <- function(species,
       
       non_dup_geotag <- outqc_geo(non_dup_recs[, lonlatdim],
                                   dist_folder = "data/distances",
-                                  mc_cores = geo_out_mccore)
+                                  mc_cores = geo_out_mccore,
+                                  limit_rem = 0.005)
       
       colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
       
@@ -190,7 +207,8 @@ mp_standardize <- function(species,
     }
     
     if (env_out) {
-      non_dup_envtag <- outqc_env(non_dup_recs[, lonlatdim])
+      non_dup_envtag <- outqc_env(non_dup_recs[, lonlatdim],
+                                  limit_rem = 0.005)
       
       colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
       
@@ -212,15 +230,120 @@ mp_standardize <- function(species,
     
     if (prepare_sdm) {
       
+      # Get species name
+      species_name <- non_dup_recs$species[1]
+      
+      # See if there is any potential dataset to be left out for validation
+      if (all(c("datasetkey", "datasetName", "datasetID") %in% colnames(non_dup_recs))) {
+        non_dup_recs_filt <- non_dup_recs %>%
+          mutate(unID = ifelse(is.na(datasetkey),
+                               ifelse(is.na(datasetName), datasetID, datasetName),
+                               datasetkey))
+      } else if ("datasetkey" %in% colnames(non_dup_recs)) {
+        non_dup_recs_filt <- non_dup_recs %>%
+          mutate(unID = datasetkey)
+      } else if ("datasetName" %in% colnames(non_dup_recs)) {
+        non_dup_recs_filt <- non_dup_recs %>%
+          mutate(unID = datasetName)
+      } else {
+        non_dup_recs_filt <- non_dup_recs %>%
+          mutate(unID = datasetID)
+      }
+      
+      non_dup_recs <- non_dup_recs_filt %>%
+        mutate(unID = ifelse(is.na(unID), "NODATA", unID)) %>%
+        filter(!is.na(unID))
+      
+      
+      if (out_from_cell) {
+        
+        # First convert to 1 per cell (each dataset)
+        per_cell <- function(dsID, dataset){
+          ds <- dataset[dataset$unID == dsID,]
+          
+          cell_pts <- unique(terra::cellFromXY(sdm_base, as.matrix(ds[,lonlatdim])))
+          
+          rast_pts <- terra::xyFromCell(sdm_base, cell_pts)
+          rast_pts <- data.frame(rast_pts)
+          colnames(rast_pts) <- lonlatdim
+          rast_pts <- cbind(rast_pts, unID = dsID)
+          
+          return(rast_pts)
+        }
+        
+        non_dup_recs_cell <- lapply(unique(non_dup_recs$unID), per_cell, non_dup_recs)
+        
+        non_dup_recs <- do.call("rbind", non_dup_recs_cell)
+        
+        if (geo_out) {
+          
+          non_dup_recs$cell <- terra::cellFromXY(
+            terra::rast(list.files("../mpaeu_sdm/data/distances", pattern = ".tif", full.names = T)[1]),
+            non_dup_recs[,lonlatdim]
+          )
+          
+          non_dup_recs_sing <- non_dup_recs[!duplicated(non_dup_recs$cell),]
+          
+          if (!is.null(sdm_base)) {
+            base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
+          } else {
+            base <- outqc_get_base(0.05)
+          }
+          
+          if (is.null(geo_out_mccore)) {
+            geo_out_mccore <- 1
+          }
+          
+          outqc_get_distances(base, target = non_dup_recs_sing[, lonlatdim],
+                              agg_res = 0.5, outfolder = "data/distances", skip_exists = T,
+                              mc_cores = geo_out_mccore, verbose = F)
+          
+          non_dup_geotag <- outqc_geo(non_dup_recs_sing[, lonlatdim],
+                                      dist_folder = "../mpaeu_sdm/data/distances",
+                                      mc_cores = geo_out_mccore,
+                                      limit_rem = 0.005)
+          
+          colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
+          
+          # If you want to sum other methods and get an 'ensemble' like metric
+          non_dup_geotag <- cbind(non_dup_geotag,
+                                  GeoTag_all = apply(non_dup_geotag, 1, function(x) sum(x)))
+          
+          non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_geotag)
+        }
+        
+        if (env_out) {
+          non_dup_envtag <- outqc_env(non_dup_recs_sing[, lonlatdim],
+                                      limit_rem = 0.005)
+          
+          colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
+          
+          non_dup_envtag <- cbind(non_dup_envtag,
+                                  EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
+          
+          non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_envtag)
+        }
+        
+        if (geo_out | env_out) {
+          non_dup_recs_sing <- non_dup_recs_sing[,4:ncol(non_dup_recs_sing)]
+          non_dup_recs <- dplyr::left_join(non_dup_recs, non_dup_recs_sing, by = "cell")
+          non_dup_recs <- non_dup_recs[,colnames(non_dup_recs) != "cell"]
+        }
+        
+      }
+      
       # Remove tagged outliers
       # Here we will remove based on MAD
       if (any(grepl("EnvTag", colnames(non_dup_recs)))) {
         non_dup_recs <- non_dup_recs %>%
-          filter(EnvTag_bathymetry_mad != 1) # Change here if you want to use other method
+          # Change here if you want to use other method (e.g. iqr)
+          {if (!narm_out) filter(., EnvTag_bathymetry_mad != 1 | is.na(EnvTag_bathymetry_mad)) else filter(., EnvTag_bathymetry_mad != 1)}
+        
       }
       if (any(grepl("GeoTag", colnames(non_dup_recs)))) {
         non_dup_recs <- non_dup_recs %>%
-          filter(GeoTag_mdist_mad != 1) # Change here if you want to use other method
+          # Change here if you want to use other method (e.g. iqr)
+          {if (!narm_out) filter(., GeoTag_mdist_mad != 1 | is.na(GeoTag_mdist_mad)) else filter(., GeoTag_mdist_mad != 1)}
       }
       
       # Create a function that convert points to 1 per cell
@@ -237,65 +360,46 @@ mp_standardize <- function(species,
         
         total_cell_recs <- nrow(per_cell(non_dup_recs[,lonlatdim]))
         
-        # See if there is any potential dataset to be left out for validation
-        if (all(c("datasetkey", "datasetName") %in% colnames(non_dup_recs))) {
-          non_dup_recs_filt <- non_dup_recs %>%
-            mutate(unID = ifelse(is.na(datasetkey), datasetName, datasetkey))
-        } else if ("datasetkey" %in% colnames(non_dup_recs)) {
-          non_dup_recs_filt <- non_dup_recs %>%
-            mutate(unID = datasetkey)
-        } else {
-          non_dup_recs_filt <- non_dup_recs %>%
-            mutate(unID = datasetName)
+        get_spread <- function(long, lat){
+          x <- cbind(long, lat)
+          x_cords <- x
+          x_cords <- apply(x_cords, 2, function(x) sum((x - mean(x))^2))
+          sqrt(sum(x_cords)/nrow(x))
         }
         
-        non_dup_recs_tosel <- non_dup_recs_filt %>%
-          filter(!is.na(unID))
+        uniq_id <- unique(non_dup_recs$unID)
         
-        if (nrow(non_dup_recs_tosel) > 0) {
+        non_dup_recs_sums <- lapply(uniq_id, function(x){
+          pc <- per_cell(non_dup_recs[non_dup_recs$unID == x, lonlatdim])
+          data.frame(
+            unID = x,
+            spreadness = get_spread(pc[,1], pc[,2]),
+            n_recs = nrow(pc)
+          )
+        })
+        
+        non_dup_recs_sums <- dplyr::bind_rows(non_dup_recs_sums)
+        
+        non_dup_recs_sums <- non_dup_recs_sums %>%
+          filter(n_recs > 10) %>%
+          filter(unID != "NODATA") %>%
+          # ungroup() %>%
+          # filter(n_recs < max(n_recs)) %>%
+          filter(!is.na(spreadness)) %>%
+          mutate(impact = (n_recs / total_cell_recs) * 100)
+        
+        if (nrow(non_dup_recs_sums) > 1) {
+          non_dup_recs_sums <- non_dup_recs_sums[order(non_dup_recs_sums$spreadness,
+                                                       decreasing = T),]
+          non_dup_recs_sums <- non_dup_recs_sums[1:(ceiling(nrow(non_dup_recs_sums)*.5)),]
           
-          get_spread <- function(long, lat){
-            x <- cbind(long, lat)
-            x_cords <- x
-            x_cords <- apply(x_cords, 2, function(x) sum((x - mean(x))^2))
-            sqrt(sum(x_cords)/nrow(x))
-          }
+          sel_dataid <- non_dup_recs_sums$unID[which.min(non_dup_recs_sums$impact)]
           
-          uniq_id <- unique(non_dup_recs_tosel$unID)
+          hold_out_dataset <- non_dup_recs %>%
+            filter(unID == sel_dataid)
           
-          non_dup_recs_sums <- lapply(uniq_id, function(x){
-            pc <- per_cell(non_dup_recs_tosel[non_dup_recs_tosel$unID == x, lonlatdim])
-            data.frame(
-              unID = x,
-              spreadness = get_spread(pc[,1], pc[,2]),
-              n_recs = nrow(pc)
-            )
-          })
-          
-          non_dup_recs_sums <- dplyr::bind_rows(non_dup_recs_sums)
-          
-          non_dup_recs_sums <- non_dup_recs_sums %>%
-            filter(n_recs > 10) %>%
-            # ungroup() %>%
-            # filter(n_recs < max(n_recs)) %>%
-            filter(!is.na(spreadness)) %>%
-            mutate(impact = (n_recs / total_cell_recs) * 100)
-          
-          if (nrow(non_dup_recs_sums) > 1) {
-            non_dup_recs_sums <- non_dup_recs_sums[order(non_dup_recs_sums$spreadness,
-                                                         decreasing = T),]
-            non_dup_recs_sums <- non_dup_recs_sums[1:(ceiling(nrow(non_dup_recs_sums)*.5)),]
-            
-            sel_dataid <- non_dup_recs_sums$unID[which.min(non_dup_recs_sums$impact)]
-            
-            hold_out_dataset <- non_dup_recs_tosel %>%
-              filter(unID == sel_dataid)
-            
-            non_dup_recs <- non_dup_recs_filt %>%
-              mutate(unID = ifelse(is.na(unID), "NODATA", unID)) %>%
-              filter(unID != sel_dataid)
-          }
-          
+          non_dup_recs <- non_dup_recs %>%
+            filter(unID != sel_dataid)
         }
         
         # Convert in 1 per cell
@@ -311,7 +415,7 @@ mp_standardize <- function(species,
         all_pts <- as.data.frame(all_pts)
         colnames(all_pts)[1:2] <- lonlatdim
         all_pts$taxonID <- species
-        all_pts$species <- as.character(non_dup_recs$species[1])
+        all_pts$species <- as.character(species_name)
         
         fs::dir_create(paste0(species_folder, "key=", species,
                               "/date=", format(Sys.Date(), "%Y%m%d"),

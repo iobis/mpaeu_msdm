@@ -73,7 +73,9 @@ outqc_geo <- function(pts,
       iqr <- .iqr_out(m_dists, threshold = iqr_mltp, id = -999999)
       
       mdist_iqr_res <- ifelse(iqr == -999999, 1, 0)
+      na_pts <- which(is.na(mdist_iqr_res))
       mdist_iqr_res[-to[1:ceiling(length(mdist_iqr_res)*limit_rem)]] <- 0
+      mdist_iqr_res[na_pts] <- NA
     }
     
     if (any(grepl("mdist_mad", methods))) {
@@ -81,12 +83,17 @@ outqc_geo <- function(pts,
       mad <- .mad_out(m_dists, threshold = mad_mltp, id = -999999)
       
       mdist_mad_res <- ifelse(mad == -999999, 1, 0)
+      na_pts <- which(is.na(mdist_iqr_res))
       mdist_mad_res[-to[1:ceiling(length(mdist_mad_res)*limit_rem)]] <- 0
+      mdist_iqr_res[na_pts] <- NA
     }
     
   }
   
   if (any(grepl("isoforest", methods))) {
+    
+    m_dists <- apply(dists$dist, 1, "mean")
+    na_pts <- which(is.na(m_dists))
     
     isof_m <- isotree::isolation.forest(
       dists$dist,
@@ -98,11 +105,13 @@ outqc_geo <- function(pts,
       prob_pick_avg_gain = 0)
     
     isof_vals <- predict(isof_m, dists$dist)
+    isof_vals[na_pts] <- NA
     
     to <- order(isof_vals, decreasing = T)
     
     isof_vals <- ifelse(isof_vals >= isoforest_th, 1, 0)
     isof_vals[-to[1:ceiling(length(isof_vals)*limit_rem)]] <- 0
+    isof_vals[na_pts] <- NA
     
     isoforest_res <- isof_vals
   }

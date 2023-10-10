@@ -12,6 +12,10 @@
 #'   This same value will be used to save a coarser resolution file. If \code{target}
 #'   is not provided and \code{agg_res} is, then the base file is aggregated and
 #'   all the cells for the coarser resolution are used (see details).
+#' @param try_closest if \code{TRUE}, if the point lies in an invalid (empty) cell,
+#' the function will try to find the closest valid point. It will look into the 8
+#' adjacent cells. If there is still not one valid, this point is ignored.
+#' Only relevant if target is supplied.
 #' @param outfolder the folder where the files will be saved. If not existent,
 #'   it will be created.
 #' @param skip_exists if TRUE, it skip cells that were already calculated. Just
@@ -64,6 +68,7 @@
 outqc_get_distances <- function(base,
                                 target = NULL,
                                 agg_res = NULL,
+                                try_closest = TRUE,
                                 outfolder = "distances",
                                 skip_exists = TRUE,
                                 mc_cores = NULL,
@@ -84,6 +89,26 @@ outqc_get_distances <- function(base,
       tg_cells <- terra::as.data.frame(base, cells = T, xy = T)
     }
   } else {
+    
+    check_valid <- function(id){
+      if (is.na(is_valid[id])) {
+        to_valid <- terra::adjacent(new_base, tg_cells[id,1], directions = 8)
+        to_valid_vals <- terra::extract(base, terra::xyFromCell(new_base, to_valid[1,]))
+        if (!all(is.na(to_valid_vals[,1]))) {
+          new_valid <- to_valid[1,][which(!is.na(to_valid_vals[,1]))]
+          new_valid_cell <- new_valid[1]
+          new_valid_xy <- terra::xyFromCell(new_base, new_valid_cell)
+          new_df <- data.frame(cell = new_valid_cell,
+                               new_valid_xy)
+        } else {
+          new_df <- data.frame(cell = NA, x = NA, y = NA)
+        }
+      } else {
+        new_df <- tg_cells[id,]
+      }
+      return(new_df)
+    }
+    
     if (!is.null(agg_res)) {
       if (verbose) cat("Aggregating target by the resolution of", agg_res, "\n")
       new_base <- terra::aggregate(base, agg_res/terra::res(base)[1])
@@ -94,11 +119,57 @@ outqc_get_distances <- function(base,
         terra::as.data.frame(nrast, cell = T, xy = T)[,1:3]
       }
       tg_cells <- fgrid(target, new_base)
+      
+      if (try_closest) {
+        if (verbose) cat("Trying closest in case of NAs.\n")
+        # Check if there are NAs
+        is_valid <- unlist(terra::extract(base, tg_cells[,2:3], ID = F))
+        
+        new_valids <- lapply(1:nrow(tg_cells), check_valid)
+        new_valids <- do.call("rbind", new_valids)
+        if (verbose) cat(sum(is.na(new_valids[,1])), "NAs after check. If any, it will be disconsidered in computing distances. \n")
+        tg_cells <- new_valids[!is.na(new_valids[,1]),]
+      } 
+      
+      # Get the cells from the real base, that will be used for calculations
       tg_cells <- data.frame(cell = terra::cellFromXY(base, data.frame(tg_cells[,2:3])),
                              data.frame(tg_cells[,2:3]))
     } else {
       tg_cells <- data.frame(cell = terra::cellFromXY(base, data.frame(target)))
+      
       tg_cells <- cbind(tg_cells, target)
+      
+      if (try_closest) {
+        
+        if (verbose) cat("Trying closest in case of NAs.\n")
+        check_valid <- function(id){
+          if (is.na(is_valid[id])) {
+            to_valid <- terra::adjacent(base, tg_cells[id,1], directions = 8)
+            to_valid_vals <- base[to_valid[1,]]
+            if (!all(is.na(to_valid_vals[,1]))) {
+              new_valid <- to_valid[1,][which(!is.na(to_valid_vals[,1]))]
+              new_valid_cell <- new_valid[1]
+              new_valid_xy <- terra::xyFromCell(base, new_valid_cell)
+              new_df <- data.frame(cell = new_valid_cell,
+                                   new_valid_xy)
+            } else {
+              new_df <- data.frame(cell = NA, x = NA, y = NA)
+            }
+          } else {
+            new_df <- tg_cells[id,]
+          }
+          return(new_df)
+        }
+        
+        is_valid <- unlist(terra::extract(base, tg_cells[,2:3], ID = F))
+        
+        new_valids <- lapply(1:nrow(tg_cells), check_valid)
+        new_valids <- do.call("rbind", new_valids)
+        if (verbose) cat(sum(is.na(new_valids[,1])), "NAs after check. If any, it will be disconsidered in computing distances. \n")
+        tg_cells <- new_valids[!is.na(new_valids[,1]),]
+        
+      }
+      
     }
   }
   
@@ -231,6 +302,9 @@ outqc_get_base <- function(resolution = 1,
 #' calculating the distances), so the points can be indexed as cells. If NULL, 
 #' one of the distance layers from \code{distfolder} will be used instead.
 #' @param kdist how much neighbours should be considered in the K nearest search
+#' @param try_closest if you set \code{try_closest = TRUE} when getting the distances,
+#' then you should also set it as \code{TRUE} here. Otherwise, the function will not be
+#' able to find the valid cells that were computed.
 #' @param distfolder the folder holding the distance layers produced with [outqc_get_distances()]
 #' @param parallel run query in parallel (recommended for larger datasets). 
 #' For now, will not work on Windows based systems.
@@ -239,6 +313,10 @@ outqc_get_base <- function(resolution = 1,
 #' @description
 #' Extract from a set of points the distance to the K nearest neighbours based on
 #' distance layers generated with [outqc_get_distances()].
+#' 
+#' If \code{try_closest} was set to \code{TRUE} in when getting the distances,
+#' then it's possible that some non-valid (empty) cells were omited. In that case
+#' the function will return NA for those records.
 #'
 #' @return `matrix` with each row corresponding to a point, and each collumn the distance to the nearest K(k) neighbour.
 #' @export
@@ -252,9 +330,10 @@ outqc_get_base <- function(resolution = 1,
 outqc_query_distances <- function(pts,
                                   base = NULL,
                                   kdist = NULL,
+                                  try_closest = TRUE,
                                   distfolder = "distances",
-                                  returnid = T,
-                                  parallel = T,
+                                  returnid = TRUE,
+                                  parallel = TRUE,
                                   mc_cores = NULL) {
   
   if (is.null(kdist)) {
@@ -285,16 +364,42 @@ outqc_query_distances <- function(pts,
     
     other_pts <- cells_index[-index]
     
-    sel_dist_rast <- terra::rast(paste0(distfolder, "/cell_", target, ".tif"))
-    
-    other_dist <- sel_dist_rast[other_pts][,1]
-    
-    k_near <- t(as.matrix(order(other_dist)[1:kdist]))
-    
-    k_dist <- t(as.matrix(other_dist[k_near[1,]]))
-    
-    return(list(dist = k_dist,
-                id = k_near))
+    if (file.exists(paste0(distfolder, "/cell_", target, ".tif"))) {
+      sel_dist_rast <- terra::rast(paste0(distfolder, "/cell_", target, ".tif"))
+      
+      other_dist <- sel_dist_rast[other_pts][,1]
+      
+      k_near <- t(as.matrix(order(other_dist)[1:kdist]))
+      
+      k_dist <- t(as.matrix(other_dist[k_near[1,]]))
+      
+      return(list(dist = k_dist,
+                  id = k_near))
+    } else {
+      if (try_closest) {
+        to_valid <- terra::adjacent(base, target, directions = 8)
+        to_valid_files <- paste0(distfolder, "/cell_", to_valid[1,], ".tif")
+        to_valid_files_ex <- file.exists(to_valid_files)
+        if (any(to_valid_files_ex)) {
+          new_file <- to_valid_files[which(to_valid_files_ex == TRUE)[1]]
+          
+          sel_dist_rast <- terra::rast(new_file)
+          
+          other_dist <- sel_dist_rast[other_pts][,1]
+          
+          k_near <- t(as.matrix(order(other_dist)[1:kdist]))
+          
+          k_dist <- t(as.matrix(other_dist[k_near[1,]]))
+          
+          return(list(dist = k_dist,
+                      id = k_near))
+        } else {
+          return(list(dist = NA, id = NA))
+        }
+      } else {
+        return(list(dist = NA, id = NA))
+      }
+    }
   }
   
   if (is.null(mc_cores)) {

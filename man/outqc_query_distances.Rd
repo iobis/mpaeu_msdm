@@ -8,9 +8,10 @@ outqc_query_distances(
   pts,
   base = NULL,
   kdist = NULL,
+  try_closest = TRUE,
   distfolder = "distances",
-  returnid = T,
-  parallel = T,
+  returnid = TRUE,
+  parallel = TRUE,
   mc_cores = NULL
 )
 }
@@ -22,6 +23,10 @@ calculating the distances), so the points can be indexed as cells. If NULL,
 one of the distance layers from \code{distfolder} will be used instead.}
 
 \item{kdist}{how much neighbours should be considered in the K nearest search}
+
+\item{try_closest}{if you set \code{try_closest = TRUE} when getting the distances,
+then you should also set it as \code{TRUE} here. Otherwise, the function will not be
+able to find the valid cells that were computed.}
 
 \item{distfolder}{the folder holding the distance layers produced with \code{\link[=outqc_get_distances]{outqc_get_distances()}}}
 
@@ -36,6 +41,10 @@ For now, will not work on Windows based systems.}
 \description{
 Extract from a set of points the distance to the K nearest neighbours based on
 distance layers generated with \code{\link[=outqc_get_distances]{outqc_get_distances()}}.
+
+If \code{try_closest} was set to \code{TRUE} in when getting the distances,
+then it's possible that some non-valid (empty) cells were omited. In that case
+the function will return NA for those records.
 }
 \examples{
 \dontrun{

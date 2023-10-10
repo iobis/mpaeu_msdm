@@ -12,7 +12,9 @@ mp_standardize(
   env_out = TRUE,
   prepare_sdm = TRUE,
   sdm_base = NULL,
-  remove_land = TRUE
+  remove_land = TRUE,
+  out_from_cell = TRUE,
+  narm_out = TRUE
 )
 }
 \arguments{
@@ -37,6 +39,14 @@ resolution planned for the SDM)}
 \item{remove_land}{if \code{TRUE} remove points from land. If \code{sdm_base}
 is supplied, will use it as reference. Otherwise, will use the
 \code{\link[obistools:check_onland]{obistools::check_onland()}} function}
+
+\item{out_from_cell}{only relevant when prepare_sdm is set \code{TRUE}. When this
+option is \code{TRUE}, the function will first aggregate each dataset to 1 record per
+cell. Then it will run the outlier procedure again based on the new rarefied set (see details)}
+
+\item{narm_out}{if \code{TRUE} and \code{prepare_sdm = TRUE}, then the function
+will not only remove the outliers, but also any NA value that there is (cells
+for which no distance or environmental information was found)}
 }
 \value{
 saved files (see details)
@@ -58,7 +68,8 @@ The function will perform the following steps:
 and the year of the record.
 \item If \code{remove_land} is \code{TRUE}, will remove points from land
 \item If outlier removal methods were set as \code{TRUE}, it will tag (not remove)
-the outliers. Then, this file is saved, following this pattern:
+the outliers (using limit of removal as 0.05\%, see \code{\link[=outqc_geo]{outqc_geo()}} or \code{\link[=outqc_env]{outqc_env()}} for more details).
+Then, this file is saved, following this pattern:
 }
 
 species_folder/key=\verb{SPECIES KEY}/date=\verb{CURRENT DATE IN YMD FORMAT}/ftype=dupclean/spdata0.parquet
@@ -66,7 +77,13 @@ species_folder/key=\verb{SPECIES KEY}/date=\verb{CURRENT DATE IN YMD FORMAT}/fty
 If you set prepare_sdm (there is no reason to not leave this as \code{TRUE}), then:
 \enumerate{
 \item The function will remove the outliers based on MAD (for environmental will
-consider only bathymetry).
+consider only bathymetry). If \code{out_from_cell = TRUE}, this will be done
+based on a per-cell version of the dataset. This is recommended, because if you have
+a very dense region, in terms of points, this can influence the outlier removal procedure.
+Each dataset is converted to 1 per cell, then the equivalent cells in the aggregated
+distance layer are retrieved (for the whole set of data), duplicated points are removed and outliers are detected.
+Any duplicated point (falling on the same point then other dataset) receives the same outlier status than its
+duplicate.
 \item Then it will try to set one dataset to be used
 as independent evaluation data. First it will calculate the standard distance
 to assess how spread points are (spreadness in the rest of the doc)
