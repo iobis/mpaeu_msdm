@@ -11,6 +11,7 @@ mp_standardize(
   geo_out_mccore = NULL,
   env_out = TRUE,
   prepare_sdm = TRUE,
+  skip_first_out = TRUE,
   sdm_base = NULL,
   remove_land = TRUE,
   out_from_cell = TRUE,
@@ -31,6 +32,9 @@ of cores}
 \item{env_out}{if \code{TRUE} assess environmental outliers}
 
 \item{prepare_sdm}{if \code{TRUE} prepare the data for SDM (see details)}
+
+\item{skip_first_out}{if \code{TRUE} (default), it will perform the outlier checking
+only for the SDM dataset, after converting to 1 per cell (see \code{out_from_cell})}
 
 \item{sdm_base}{a base \code{SpatRaster} in the target resolution. You can
 supply one of the environmental layers that you will use (same extent and
@@ -113,6 +117,8 @@ to evaluate the final model (eval_points).
 \item taxonID: the AphiaID, for control
 \item species: scientificName, for control
 }
+
+Aggregate resolution used in the outlier removal process is 0.8 (see \code{\link[=outqc_geo]{outqc_geo()}})
 }
 \section{Important note}{
 Even if the function succeed in setting one dataset apart for evaluation, note that the selected

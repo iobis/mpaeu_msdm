@@ -15,6 +15,8 @@
 #' @export
 #'
 #' @import dplyr
+#' 
+#' @author Pieter Provoost (adapted by Silas Principe)
 #'
 #' @examples
 #' \dontrun{

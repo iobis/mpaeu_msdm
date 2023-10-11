@@ -356,7 +356,14 @@ outqc_query_distances <- function(pts,
   
   #pts.dist <- matrix(nrow = nrow(pts), ncol = kdist)
   
-  cells_index <- terra::cellFromXY(base, as.data.frame(pts))
+  pts <- as.data.frame(pts)
+  
+  cells_index <- terra::cellFromXY(base, pts)
+  
+  pts$cell <- cells_index
+  
+  cells_index <- unique(cells_index)
+  
   
   extract_dist <- function(index, cells_index) {
     
@@ -411,19 +418,32 @@ outqc_query_distances <- function(pts,
   }
   
   if (parallel) {
-    pts_kdist <- mclapply(1:nrow(pts), extract_dist, cells_index = cells_index)
+    pts_kdist <- mclapply(1:length(cells_index), extract_dist, cells_index = cells_index)
   } else {
-    pts_kdist <- lapply(1:nrow(pts), extract_dist, cells_index = cells_index)
+    pts_kdist <- lapply(1:length(cells_index), extract_dist, cells_index = cells_index)
   }
   
   if (returnid) {
     pts_id <- lapply(pts_kdist, function(x) x$id)
-    pts_id <- do.call("rbind", pts_id)
+    pts_id <- data.frame(do.call("rbind", pts_id))
+    
+    pts_id$cell <- cells_index
+    
+    pts_join <- dplyr::left_join(pts, pts_id, by = "cell")
+    
+    pts_dist <- pts_join[,!colnames(pts_join) %in% c("cell", "decimalLongitude", "decimalLatitude", "x", "y")]
+    
     colnames(pts_id) <- paste0("K", 1:kdist)
   }
   
   pts_dist <- lapply(pts_kdist, function(x) x$dist)
-  pts_dist <- do.call("rbind", pts_dist)
+  pts_dist <- data.frame(do.call("rbind", pts_dist))
+  
+  pts_dist$cell <- cells_index
+  
+  pts_join <- dplyr::left_join(pts, pts_dist, by = "cell")
+  
+  pts_dist <- pts_join[,!colnames(pts_join) %in% c("cell", "decimalLongitude", "decimalLatitude", "x", "y")]
   
   colnames(pts_dist) <- paste0("K", 1:kdist)
   

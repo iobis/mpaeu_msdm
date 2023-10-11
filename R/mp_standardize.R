@@ -8,6 +8,8 @@
 #'   of cores
 #' @param env_out if \code{TRUE} assess environmental outliers
 #' @param prepare_sdm if \code{TRUE} prepare the data for SDM (see details)
+#' @param skip_first_out if \code{TRUE} (default), it will perform the outlier checking
+#' only for the SDM dataset, after converting to 1 per cell (see \code{out_from_cell})
 #' @param sdm_base a base \code{SpatRaster} in the target resolution. You can
 #'   supply one of the environmental layers that you will use (same extent and
 #'   resolution planned for the SDM)
@@ -78,6 +80,8 @@
 #'  - taxonID: the AphiaID, for control
 #'  - species: scientificName, for control
 #'  
+#'  Aggregate resolution used in the outlier removal process is 0.8 (see [outqc_geo()])
+#'  
 #'  # Important note
 #'  
 #'  Even if the function succeed in setting one dataset apart for evaluation, note that the selected
@@ -96,8 +100,6 @@
 #'  If this was the case, the evaluation dataset was incorporated in fitting (points were converted again
 #'  to 1 per cell, as some points could overlap).
 #'  
-#' 
-#' 
 #' @examples
 #' \dontrun{
 #' mp_standardize(21510)
@@ -108,6 +110,7 @@ mp_standardize <- function(species,
                            geo_out_mccore = NULL,
                            env_out = TRUE,
                            prepare_sdm = TRUE,
+                           skip_first_out = TRUE,
                            sdm_base = NULL,
                            remove_land = TRUE,
                            out_from_cell = TRUE,
@@ -177,45 +180,47 @@ mp_standardize <- function(species,
   
   if (nrow(non_dup_recs) > 0) {
     # Perform geographical and environmental outlier removal
-    if (geo_out) {
-      if (!is.null(sdm_base)) {
-        base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
-      } else {
-        base <- outqc_get_base(0.05)
+    if (!skip_first_out) {
+      if (geo_out) {
+        if (!is.null(sdm_base)) {
+          base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
+        } else {
+          base <- outqc_get_base(0.05)
+        }
+        
+        if (is.null(geo_out_mccore)) {
+          geo_out_mccore <- 1
+        }
+        
+        outqc_get_distances(base, target = non_dup_recs[, lonlatdim],
+                            agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
+                            mc_cores = geo_out_mccore, verbose = F)
+        
+        non_dup_geotag <- outqc_geo(non_dup_recs[, lonlatdim],
+                                    dist_folder = "data/distances",
+                                    mc_cores = geo_out_mccore,
+                                    limit_rem = 0.005)
+        
+        colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
+        
+        # If you want to sum other methods and get an 'ensemble' like metric
+        non_dup_geotag <- cbind(non_dup_geotag,
+                                GeoTag_all = apply(non_dup_geotag, 1, function(x) sum(x)))
+        
+        non_dup_recs <- cbind(non_dup_recs, non_dup_geotag)
       }
       
-      if (is.null(geo_out_mccore)) {
-        geo_out_mccore <- 1
+      if (env_out) {
+        non_dup_envtag <- outqc_env(non_dup_recs[, lonlatdim],
+                                    limit_rem = 0.005)
+        
+        colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
+        
+        non_dup_envtag <- cbind(non_dup_envtag,
+                                EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
+        
+        non_dup_recs <- cbind(non_dup_recs, non_dup_envtag)
       }
-      
-      outqc_get_distances(base, target = non_dup_recs[, lonlatdim],
-                          agg_res = 0.5, outfolder = "data/distances", skip_exists = T,
-                          mc_cores = geo_out_mccore, verbose = F)
-      
-      non_dup_geotag <- outqc_geo(non_dup_recs[, lonlatdim],
-                                  dist_folder = "data/distances",
-                                  mc_cores = geo_out_mccore,
-                                  limit_rem = 0.005)
-      
-      colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
-      
-      # If you want to sum other methods and get an 'ensemble' like metric
-      non_dup_geotag <- cbind(non_dup_geotag,
-                              GeoTag_all = apply(non_dup_geotag, 1, function(x) sum(x)))
-      
-      non_dup_recs <- cbind(non_dup_recs, non_dup_geotag)
-    }
-    
-    if (env_out) {
-      non_dup_envtag <- outqc_env(non_dup_recs[, lonlatdim],
-                                  limit_rem = 0.005)
-      
-      colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
-      
-      non_dup_envtag <- cbind(non_dup_envtag,
-                              EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
-      
-      non_dup_recs <- cbind(non_dup_recs, non_dup_envtag)
     }
     
     # Save duplicate records removal
@@ -277,29 +282,35 @@ mp_standardize <- function(species,
         
         if (geo_out) {
           
-          non_dup_recs$cell <- terra::cellFromXY(
-            terra::rast(list.files("../mpaeu_sdm/data/distances", pattern = ".tif", full.names = T)[1]),
-            non_dup_recs[,lonlatdim]
-          )
-          
-          non_dup_recs_sing <- non_dup_recs[!duplicated(non_dup_recs$cell),]
-          
           if (!is.null(sdm_base)) {
             base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
           } else {
             base <- outqc_get_base(0.05)
           }
           
+          if (is.na(list.files("data/distances", pattern = ".tif", full.names = T)[1])) {
+            outqc_get_distances(base, target = non_dup_recs[1:4, lonlatdim],
+                                agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
+                                mc_cores = geo_out_mccore, verbose = F)
+          }
+          
+          non_dup_recs$cell <- terra::cellFromXY(
+            terra::rast(list.files("data/distances", pattern = ".tif", full.names = T)[1]),
+            non_dup_recs[,lonlatdim]
+          )
+          
+          non_dup_recs_sing <- non_dup_recs[!duplicated(non_dup_recs$cell),]
+          
           if (is.null(geo_out_mccore)) {
             geo_out_mccore <- 1
           }
           
           outqc_get_distances(base, target = non_dup_recs_sing[, lonlatdim],
-                              agg_res = 0.5, outfolder = "data/distances", skip_exists = T,
+                              agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
                               mc_cores = geo_out_mccore, verbose = F)
           
           non_dup_geotag <- outqc_geo(non_dup_recs_sing[, lonlatdim],
-                                      dist_folder = "../mpaeu_sdm/data/distances",
+                                      dist_folder = "data/distances",
                                       mc_cores = geo_out_mccore,
                                       limit_rem = 0.005)
           

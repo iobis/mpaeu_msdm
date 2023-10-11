@@ -559,7 +559,8 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
                                 weights = wt,
                                 nfolds = 5,
                                 foldid = sdm_data$blocks$folds[[tune_blocks]],
-                                type.measure = meas)
+                                type.measure = meas,
+                                keep = TRUE)
   
   timings <- .get_time(timings, "tuning")
   
@@ -1823,3 +1824,190 @@ sdm_module_lgbm <- function(sdm_data, weight_resp = TRUE,
 .normalize_res <- function(pred_vals) {
   (pred_vals - min(pred_vals)) / (max(pred_vals) - min(pred_vals))
 }
+
+
+
+#### OLD VERSION OF LASSO
+# sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
+#                              tune_blocks = "spatial_grid", blocks_all = FALSE,
+#                              total_area = NULL) {
+#   
+#   if (method == "dwpr" & is.null(total_area)) {
+#     stop("When method is 'dwpr' total_area should be supplied.")
+#   }
+#   
+#   .check_type(sdm_data)
+#   
+#   timings <- .get_time()
+#   
+#   train_p <- sdm_data$training$presence
+#   train_dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
+#   
+#   if (method == "iwlr" | method == "dwpr") {
+#     weight_resp <- TRUE
+#     to_norm <- TRUE
+#     glmnet::glmnet.control(pmin = 1.0e-8, fdev = 0)
+#   } else {
+#     to_norm <- FALSE
+#     glmnet::glmnet.control(pmin = 1e-09, fdev = 1e-05)
+#   }
+#   
+#   meas <- "auc"
+#   fam <- "binomial"
+#   resp_vec <- train_p
+#   
+#   if (weight_resp) {
+#     if (method == "iwlr") {
+#       wt <- (1e3)^(1 - train_p)
+#     } else if (method == "dwpr") {
+#       wt <- rep(1e-6, length(train_p))
+#       wt[train_p == 0] <- total_area/sum(train_p == 0)
+#       resp_vec <- train_p/wt
+#       fam <- "poisson"
+#       meas <- "default"
+#     } else {
+#       pres <- length(train_p[train_p == 1])
+#       bkg <- length(train_p[train_p == 0])
+#       wt <- ifelse(train_p == 1, 1, pres / bkg)
+#     }
+#   } else {
+#     wt <- NULL
+#   }
+#   
+#   ### Tune model
+#   forms <- as.formula(paste("~ 1",
+#                             paste(colnames(train_dat), collapse = "+"),
+#                             paste(paste("I(", colnames(train_dat), "^2", ")", sep = ""), 
+#                                   collapse = "+"), sep = "+"))
+#   
+#   training_poly <- model.matrix(forms, data = train_dat) 
+#   training_poly <- training_poly[,-1]
+#   
+#   lasso_cv <- glmnet::cv.glmnet(x = training_poly,
+#                                 y = resp_vec,
+#                                 family = fam,
+#                                 alpha = 1,
+#                                 weights = wt,
+#                                 nfolds = 5,
+#                                 foldid = sdm_data$blocks$folds[[tune_blocks]],
+#                                 type.measure = meas)
+#   
+#   timings <- .get_time(timings, "tuning")
+#   
+#   # Create a function of the model
+#   glmnet_mod <- function(labels, training, weights) {
+#     if (method != "dwpr") {
+#       glmnet::glmnet(x = training,
+#                      y = labels,
+#                      family = fam,
+#                      alpha = 1,
+#                      weights = weights,
+#                      lambda = lasso_cv$lambda.1se)
+#     } else {
+#       glmnet::glmnet(x = training,
+#                      y = (labels / weights),
+#                      family = fam,
+#                      alpha = 1,
+#                      weights = weights,
+#                      lambda = lasso_cv$lambda.1se)
+#     }
+#   }
+#   
+#   ### Evaluate final model through CV
+#   
+#   if (blocks_all) {
+#     final_cv_metric <- list()
+#     
+#     for (b in 1:length(sdm_data$blocks$folds)) {
+#       
+#       b_index <- sdm_data$blocks$folds[[b]]
+#       
+#       final_cv_metric[[b]] <- cv_mod(n_folds = sdm_data$blocks$n,
+#                                      folds = b_index, labels = train_p,
+#                                      training = training_poly, metrics = "all",
+#                                      pred_type = "response", model_fun = glmnet_mod,
+#                                      weights = wt, normalize = to_norm)
+#       
+#       final_cv_metric[[b]] <- as.data.frame(do.call("rbind", final_cv_metric[[b]]))
+#       
+#     }
+#     
+#     names(final_cv_metric) <- names(sdm_data$blocks$folds)
+#     cv_method <- names(sdm_data$blocks$folds)
+#     
+#   } else {
+#     
+#     final_cv <- cv_mod(n_folds = sdm_data$blocks$n,
+#                        folds = sdm_data$blocks$folds[[tune_blocks]],
+#                        labels = train_p,
+#                        training = training_poly, metrics = "all",
+#                        pred_type = "response", model_fun = glmnet_mod,
+#                        weights = wt, normalize = to_norm)
+#     
+#     final_cv_metric <- as.data.frame(do.call("rbind", final_cv))
+#     
+#     cv_method <- tune_blocks
+#   }
+#   
+#   timings <- .get_time(timings, "cv")
+#   
+#   ### Train final model
+#   m_final <- glmnet::glmnet(x = training_poly,
+#                             y = resp_vec,
+#                             family = fam,
+#                             alpha = 1,
+#                             weights = wt,
+#                             lambda = lasso_cv$lambda.1se)
+#   
+#   ### Evaluate final model (full data)
+#   
+#   pred_final <- predict(m_final, training_poly, type = "response")
+#   
+#   if (to_norm) {
+#     pred_final <- .normalize_res(pred_final)
+#   }
+#   
+#   final_full_metric <- eval_metrics(train_p, pred_final[,1])
+#   
+#   timings <- .get_time(timings, "evaluate final")
+#   
+#   ### Prepare returning object
+#   result <- list(
+#     name = "lasso",
+#     model = m_final,
+#     timings = timings,
+#     tune_cv_method = tune_blocks,
+#     cv_method = cv_method,
+#     parameters = c("lambda_1se" = lasso_cv$lambda.1se),
+#     cv_metrics = final_cv_metric,
+#     full_metrics = final_full_metric,
+#     eval_metrics = NULL
+#   )
+#   
+#   ### If testing dataset is available, use it to evaluate
+#   
+#   if (!is.null(sdm_data$eval_data)) {
+#     eval_p <- sdm_data$eval_data$presence
+#     eval_dat <- sdm_data$eval_data[, !colnames(sdm_data$eval_data) %in% "presence"]
+#     
+#     eval_poly <- model.matrix(forms, data = eval_dat) 
+#     eval_poly <- eval_poly[,-1]
+#     
+#     pred_eval <- predict(m_final, eval_poly, type = "response")
+#     
+#     if (to_norm) {
+#       pred_eval <- .normalize_res(pred_eval)
+#     }
+#     
+#     eval_metric <- eval_metrics(eval_p, pred_eval[,1])
+#     
+#     result$eval_metrics <- eval_metric
+#     
+#     result$timings <- .get_time(result$timings, "evaluation dataset")
+#   }
+#   
+#   class(result) <- c("sdm_result", class(result))
+#   
+#   return(result)
+#   
+# }
