@@ -8,6 +8,7 @@ sdm_module_lasso(
   sdm_data,
   weight_resp = TRUE,
   method = "naive",
+  alpha_param = 1,
   tune_blocks = "spatial_grid",
   blocks_all = FALSE,
   total_area = NULL
@@ -51,7 +52,18 @@ Just for reference, as this is not a fair scenario
 }
 \description{
 Implements the Lasso Regularized Generalized Linear Models through the
-\link{glmnet} package.
+\link{glmnet} package. This function can also be used to fit Ridge regression or
+elastic net by modifying the alpha parameter. Tuning the alpha parameter is
+also possible (see details)
+}
+\details{
+If you give a vector of values for the \code{alpha_param}, then the function
+will cross-validate models through the several alpha values and select the one
+with least error (mean squared error). Once the Alpha was established,
+it will then cross-validate again a model with that alpha to obtain the best
+lambda parameter.
+
+The \code{predict} method is the same for any of the implementations (lasso, ridge or elastic net)
 }
 \examples{
 \dontrun{

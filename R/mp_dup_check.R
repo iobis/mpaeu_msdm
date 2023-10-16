@@ -16,7 +16,8 @@
 #'
 #' @import dplyr
 #' 
-#' @author Pieter Provoost (adapted by Silas Principe)
+#' @author Pieter Provoost
+#' @author Silas Principe
 #'
 #' @examples
 #' \dontrun{
@@ -70,6 +71,10 @@ mp_dup_check <- function(data_a,
   
   
   # Get geohash and unique code by gh + year
+  data_a$decimalLatitude <- ifelse(data_a$decimalLatitude == 90, 
+                                   data_a$decimalLatitude - 0.000000001,
+                                   data_a$decimalLatitude) # Avoid latitude error of GeoHash
+  
   data_f <- data_a %>%
     mutate(geohash = geohashTools::gh_encode(decimalLatitude, decimalLongitude, gh_precision)) %>%
     mutate(cell = factor(paste(geohash,

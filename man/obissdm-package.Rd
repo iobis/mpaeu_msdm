@@ -4,12 +4,17 @@
 \name{obissdm-package}
 \alias{obissdm}
 \alias{obissdm-package}
-\title{obissdm: Generate SDMs for MPA Europe project}
+\title{obissdm: Tools for generating SDMs used within the MPA Europe project}
 \description{
-This package was created to hold the functions used to generate the SDMs for the MPA Europe project.
+This package was created to hold the functions used to generate the SDMs for the MPA Europe project. Although the package was created to fulfill the targets of MPA Europe, the functions may be useful for other large scale projects aiming to produce SDMs of marine species. You can both use the package as is or download and edit the functions to build your own package.
 }
 \author{
-\strong{Maintainer}: Silas Principe \email{first.last@example.com} (\href{https://orcid.org/YOUR-ORCID-ID}{ORCID})
+\strong{Maintainer}: Silas Principe \email{s.principe@unesco.org} (\href{https://orcid.org/0000-0002-8059-6304}{ORCID})
+
+Authors:
+\itemize{
+  \item Pieter Provoost \email{p.provoost@unesco.org}
+}
 
 }
 \keyword{internal}

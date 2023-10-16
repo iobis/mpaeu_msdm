@@ -1,10 +1,10 @@
 Package: obissdm
 Title: Tools for generating SDMs used within the MPA Europe project
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
-    person("Silas", "Principe", "C.", "s.principe@unesco.org", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0002-8059-6304"))
-    person("Pieter", "Provoost", , "p.provoost@unesco.org", role = c("aut", "cre"))
+    c(person("Silas", "Principe", , "s.principe@unesco.org", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-8059-6304")),
+    person("Pieter", "Provoost", , "p.provoost@unesco.org", role = "aut"))
 Description: This package was created to hold the functions used to generate the SDMs for the MPA Europe project. Although the package was created to fulfill the targets of MPA Europe, the functions may be useful for other large scale projects aiming to produce SDMs of marine species. You can both use the package as is or download and edit the functions to build your own package.
 License: MIT + file LICENSE
 Encoding: UTF-8

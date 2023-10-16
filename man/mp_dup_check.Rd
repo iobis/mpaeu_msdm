@@ -31,5 +31,7 @@ mp_dup_check(dataset_a, dataset_b)
 
 }
 \author{
-Pieter Provoost (adapted by Silas Principe)
+Pieter Provoost
+
+Silas Principe
 }

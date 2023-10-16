@@ -212,7 +212,7 @@ eval_metrics <- function(original, predicted,
 
 # Print the SDM result returned by the SDM modules
 #' @export
-print.sdm_result <- function(x) {
+print.sdm_result <- function(x, print_all = FALSE) {
   
   cli::cli_h1(x$name)
   
@@ -221,6 +221,17 @@ print.sdm_result <- function(x) {
   cli::cli_alert_info("Tuned using [{x$tune_cv_method}] CV")
   
   cli::cli_h3("Metrics for the full model")
+  if (length(x$full_metrics) > 3 & !print_all) {
+    print_note <- TRUE
+    x$full_metrics <- x$full_metrics[1:3]
+    if (!is.data.frame(x$cv_metrics)) {
+      for (i in 1:length(x$cv_metrics)) {
+        x$cv_metrics[[i]] <- x$cv_metrics[[i]][,1:3]
+      }
+    } else {
+      x$cv_metrics <- x$cv_metrics[,1:3]
+    }
+  }
   m <- paste(names(x$full_metrics), "=", round(x$full_metrics, 2))
   names(m) <- rep(">", length(names(m)))
   
@@ -250,6 +261,9 @@ print.sdm_result <- function(x) {
     names(m) <- rep(">", length(names(m)))
     
     cli::cli_bullets(m)
+  }
+  if (print_note) {
+    cli::cli_inform("{.emph More than 3 metrics available, only the first 3 were printed. Set argument {.code print_all = TRUE} to print all.}")
   }
   
   return(invisible(NULL))
@@ -294,7 +308,37 @@ setMethod("predict", signature(object = "sdm_result"),
                                                     model.frame(forms, as.data.frame(lay_vals),
                                                                 na.action=na.pass)) 
                         layers_poly <- layers_poly[,-1]
-                        p <- predict(x$model, as.matrix(layers_poly), type = "response", ...)
+                        p <- predict(x$model, as.matrix(layers_poly), s = "lambda.1se", type = "response", ...)
+                        f <- layers[[1]]
+                        values(f) <- p
+                        f
+                      },
+                      elasticnet = {
+                        lay_vals <- values(layers)
+                        forms <- as.formula(paste("~ 1",
+                                                  paste(colnames(lay_vals), collapse = "+"),
+                                                  paste(paste("I(", colnames(lay_vals), "^2", ")", sep = ""), 
+                                                        collapse = "+"), sep = "+"))
+                        layers_poly <- model.matrix(forms,
+                                                    model.frame(forms, as.data.frame(lay_vals),
+                                                                na.action=na.pass)) 
+                        layers_poly <- layers_poly[,-1]
+                        p <- predict(x$model, as.matrix(layers_poly), s = "lambda.1se", type = "response", ...)
+                        f <- layers[[1]]
+                        values(f) <- p
+                        f
+                      },
+                      ridge = {
+                        lay_vals <- values(layers)
+                        forms <- as.formula(paste("~ 1",
+                                                  paste(colnames(lay_vals), collapse = "+"),
+                                                  paste(paste("I(", colnames(lay_vals), "^2", ")", sep = ""), 
+                                                        collapse = "+"), sep = "+"))
+                        layers_poly <- model.matrix(forms,
+                                                    model.frame(forms, as.data.frame(lay_vals),
+                                                                na.action=na.pass)) 
+                        layers_poly <- layers_poly[,-1]
+                        p <- predict(x$model, as.matrix(layers_poly), s = "lambda.1se", type = "response", ...)
                         f <- layers[[1]]
                         values(f) <- p
                         f
@@ -338,7 +382,38 @@ setMethod("predict", signature(object = "sdm_result"),
                         # layers_poly <- apply(layers, 2, function(x) x^2)
                         # colnames(layers_poly) <- paste0(colnames(layers), "_poly")
                         # to_pred <- cbind(layers, layers_poly)
-                        p <- predict(x$model, to_pred, type = "response", ...)
+                        p <- predict(x$model, to_pred, s = "lambda.1se", type = "response", ...)
+                        # p <- predict(x$model, to_pred, type = "response", ...)
+                        p[,1]
+                      },
+                      elasticnet = {
+                        forms <- as.formula(paste("~ 1",
+                                                  paste(colnames(layers), collapse = "+"),
+                                                  paste(paste("I(", colnames(layers), "^2", ")", sep = ""), 
+                                                        collapse = "+"), sep = "+"))
+                        
+                        to_pred <- model.matrix(forms, data = as.data.frame(layers)) 
+                        to_pred <- to_pred[,-1]
+                        # layers_poly <- apply(layers, 2, function(x) x^2)
+                        # colnames(layers_poly) <- paste0(colnames(layers), "_poly")
+                        # to_pred <- cbind(layers, layers_poly)
+                        p <- predict(x$model, to_pred, s = "lambda.1se", type = "response", ...)
+                        # p <- predict(x$model, to_pred, type = "response", ...)
+                        p[,1]
+                      },
+                      ridge = {
+                        forms <- as.formula(paste("~ 1",
+                                                  paste(colnames(layers), collapse = "+"),
+                                                  paste(paste("I(", colnames(layers), "^2", ")", sep = ""), 
+                                                        collapse = "+"), sep = "+"))
+                        
+                        to_pred <- model.matrix(forms, data = as.data.frame(layers)) 
+                        to_pred <- to_pred[,-1]
+                        # layers_poly <- apply(layers, 2, function(x) x^2)
+                        # colnames(layers_poly) <- paste0(colnames(layers), "_poly")
+                        # to_pred <- cbind(layers, layers_poly)
+                        p <- predict(x$model, to_pred, s = "lambda.1se", type = "response", ...)
+                        # p <- predict(x$model, to_pred, type = "response", ...)
                         p[,1]
                       },
                       lgbm = predict(x$model, as.matrix(layers))

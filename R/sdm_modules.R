@@ -461,7 +461,9 @@ sdm_module_gam <- function(sdm_data, method = "iwlr", weight_resp = TRUE,
 #' SDM module: LASSO (Regularized Generalized Linear Models)
 #' 
 #' Implements the Lasso Regularized Generalized Linear Models through the
-#' [glmnet] package.
+#' [glmnet] package. This function can also be used to fit Ridge regression or
+#' elastic net by modifying the alpha parameter. Tuning the alpha parameter is
+#' also possible (see details)
 #'
 #' @param sdm_data object of class sdm_dat returned by [mp_prepare_data()]
 #' @param weight_resp if weight_resp is \code{TRUE}, then the occurrence points
@@ -490,6 +492,16 @@ sdm_module_gam <- function(sdm_data, method = "iwlr", weight_resp = TRUE,
 #'  Just for reference, as this is not a fair scenario
 #'  (same data used for training and testing).
 #' - eval_metrics = metrics for the evaluation dataset (if this is supplied).
+#' 
+#' @details
+#' If you give a vector of values for the \code{alpha_param}, then the function
+#' will cross-validate models through the several alpha values and select the one
+#' with least error (mean squared error). Once the Alpha was established,
+#' it will then cross-validate again a model with that alpha to obtain the best
+#' lambda parameter.
+#' 
+#' The \code{predict} method is the same for any of the implementations (lasso, ridge or elastic net)
+#' 
 #'
 #' @export
 #'
@@ -498,11 +510,20 @@ sdm_module_gam <- function(sdm_data, method = "iwlr", weight_resp = TRUE,
 #' sdm_module_lasso(species_data)
 #' }
 sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
+                             alpha_param = 1,
                              tune_blocks = "spatial_grid", blocks_all = FALSE,
                              total_area = NULL) {
   
   if (method == "dwpr" & is.null(total_area)) {
     stop("When method is 'dwpr' total_area should be supplied.")
+  }
+  
+  if (length(alpha_param) > 1) {
+    model_type <- "elasticnet"
+  } else if (alpha_param == 1) {
+    model_type <- "lasso"
+  } else {
+    model_type <- "ridge"
   }
   
   .check_type(sdm_data)
@@ -552,10 +573,42 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
   training_poly <- model.matrix(forms, data = train_dat) 
   training_poly <- training_poly[,-1]
   
+  if (length(alpha_param) > 1) {
+    
+    alpha_error <- rep(NA, length(alpha_param))
+    
+    for (ap in 1:length(alpha_param)) {
+      lasso_cv_a <- try(glmnet::cv.glmnet(x = training_poly,
+                                    y = resp_vec,
+                                    family = fam,
+                                    alpha = alpha_param[ap],
+                                    weights = wt,
+                                    nfolds = 5,
+                                    foldid = sdm_data$blocks$folds[[tune_blocks]],
+                                    type.measure = "mse"))
+      
+      if (class(lasso_cv_a)[1] != "try-error") {
+        alpha_error[ap] <- lasso_cv_a$cvm[lasso_cv_a$index["1se",]]
+      } else {
+        alpha_error[ap] <- NA
+      }
+    }
+    
+    if (all(is.na(alpha_error))) {
+      stop("Failed to fit glmnet with the supplied alpha parameters. Try a different range of values, or 1 for LASSO and 0 for Ridge.\n")
+    }
+    
+    alpha_error <- data.frame(error = alpha_error, aparam = alpha_param)
+    alpha_error <- alpha_error[!is.na(alpha_error$error), ]
+    final_alpha_param <- alpha_error$aparam[which.min(alpha_error$error)]
+  } else {
+    final_alpha_param <- alpha_param
+  }
+  
   lasso_cv <- glmnet::cv.glmnet(x = training_poly,
                                 y = resp_vec,
                                 family = fam,
-                                alpha = 1,
+                                alpha = final_alpha_param,
                                 weights = wt,
                                 nfolds = 5,
                                 foldid = sdm_data$blocks$folds[[tune_blocks]],
@@ -564,39 +617,66 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
   
   timings <- .get_time(timings, "tuning")
   
-  # Create a function of the model
-  glmnet_mod <- function(labels, training, weights) {
-    if (method != "dwpr") {
-      glmnet::glmnet(x = training,
-                     y = labels,
-                     family = fam,
-                     alpha = 1,
-                     weights = weights,
-                     lambda = lasso_cv$lambda.1se)
-    } else {
-      glmnet::glmnet(x = training,
-                     y = (labels / weights),
-                     family = fam,
-                     alpha = 1,
-                     weights = weights,
-                     lambda = lasso_cv$lambda.1se)
-    }
-  }
+  best_lambda <- lasso_cv$lambda.1se
   
   ### Evaluate final model through CV
   
+  # Get data for CV
+  pred_test <- lasso_cv$fit.preval[,lasso_cv$index["1se",]]
+  
+  if (fam == "binomial") {
+    pred_test <- 1/(1+exp(-pred_test))
+  } else {
+    pred_test <- exp(pred_test)
+  }
+  
+  if (to_norm) {
+    pred_test <- .normalize_res(pred_test)
+  }
+  
+  # See what to CV
   if (blocks_all) {
     final_cv_metric <- list()
     
     for (b in 1:length(sdm_data$blocks$folds)) {
       
       b_index <- sdm_data$blocks$folds[[b]]
+      b_type <- names(sdm_data$blocks$folds)
       
-      final_cv_metric[[b]] <- cv_mod(n_folds = sdm_data$blocks$n,
-                                     folds = b_index, labels = train_p,
-                                     training = training_poly, metrics = "all",
-                                     pred_type = "response", model_fun = glmnet_mod,
-                                     weights = wt, normalize = to_norm)
+      if (b_type[b] == tune_blocks) {
+        final_cv_metric[[b]] <- lapply(unique(b_index), function(fid){
+          eval_metrics(train_p[b_index == fid], pred_test[b_index == fid])
+        })
+      } else {
+        
+        lasso_cv_temp <- glmnet::cv.glmnet(x = training_poly,
+                                      y = resp_vec,
+                                      family = fam,
+                                      lambda = lasso_cv$lambda,
+                                      alpha = final_alpha_param,
+                                      weights = wt,
+                                      nfolds = 5,
+                                      foldid = sdm_data$blocks$folds[[b_type[b]]],
+                                      type.measure = meas,
+                                      keep = TRUE)
+        
+        pred_test <- lasso_cv_temp$fit.preval[,lasso_cv$index["1se",]]
+        
+        if (fam == "binomial") {
+          pred_test <- 1/(1+exp(-pred_test))
+        } else {
+          pred_test <- exp(pred_test)
+        }
+        
+        if (to_norm) {
+          pred_test <- .normalize_res(pred_test)
+        }
+        
+        final_cv_metric[[b]] <- lapply(unique(b_index), function(fid){
+          eval_metrics(train_p[b_index == fid], pred_test[b_index == fid])
+        })
+        
+      }
       
       final_cv_metric[[b]] <- as.data.frame(do.call("rbind", final_cv_metric[[b]]))
       
@@ -607,12 +687,11 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
     
   } else {
     
-    final_cv <- cv_mod(n_folds = sdm_data$blocks$n,
-                       folds = sdm_data$blocks$folds[[tune_blocks]],
-                       labels = train_p,
-                       training = training_poly, metrics = "all",
-                       pred_type = "response", model_fun = glmnet_mod,
-                       weights = wt, normalize = to_norm)
+    b_index <- sdm_data$blocks$folds[[tune_blocks]]
+    
+    final_cv <- lapply(unique(b_index), function(fid){
+      eval_metrics(train_p[b_index == fid], pred_test[b_index == fid])
+    })
     
     final_cv_metric <- as.data.frame(do.call("rbind", final_cv))
     
@@ -621,17 +700,8 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
   
   timings <- .get_time(timings, "cv")
   
-  ### Train final model
-  m_final <- glmnet::glmnet(x = training_poly,
-                            y = resp_vec,
-                            family = fam,
-                            alpha = 1,
-                            weights = wt,
-                            lambda = lasso_cv$lambda.1se)
-  
   ### Evaluate final model (full data)
-  
-  pred_final <- predict(m_final, training_poly, type = "response")
+  pred_final <- predict(lasso_cv, training_poly, s = c("lambda.1se"), type = "response")
   
   if (to_norm) {
     pred_final <- .normalize_res(pred_final)
@@ -639,16 +709,19 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
   
   final_full_metric <- eval_metrics(train_p, pred_final[,1])
   
+  lasso_cv$fit.preval <- NULL
+  
   timings <- .get_time(timings, "evaluate final")
   
   ### Prepare returning object
   result <- list(
-    name = "lasso",
-    model = m_final,
+    name = model_type,
+    model = lasso_cv,
     timings = timings,
     tune_cv_method = tune_blocks,
     cv_method = cv_method,
-    parameters = c("lambda_1se" = lasso_cv$lambda.1se),
+    parameters = c("lambda_1se" = lasso_cv$lambda.1se,
+                   "alpha" = final_alpha_param),
     cv_metrics = final_cv_metric,
     full_metrics = final_full_metric,
     eval_metrics = NULL
@@ -663,7 +736,7 @@ sdm_module_lasso <- function(sdm_data, weight_resp = TRUE, method = "naive",
     eval_poly <- model.matrix(forms, data = eval_dat) 
     eval_poly <- eval_poly[,-1]
     
-    pred_eval <- predict(m_final, eval_poly, type = "response")
+    pred_eval <- predict(lasso_cv, eval_poly, s = c("lambda.1se"), type = "response")
     
     if (to_norm) {
       pred_eval <- .normalize_res(pred_eval)

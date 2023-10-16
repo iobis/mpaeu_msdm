@@ -24,7 +24,8 @@ mp_standardize(
 \item{species_folder}{the folder where the species data is located (default
 is the package standard)}
 
-\item{geo_out}{if \code{TRUE} assess geographical outliers}
+\item{geo_out}{if \code{TRUE} assess geographical outliers. At least 5 records are necessary
+for any outlier removal procedure (either geographical or environmental)}
 
 \item{geo_out_mccore}{for computing geographic distances in parallel, number
 of cores}

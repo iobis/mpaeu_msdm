@@ -81,7 +81,7 @@ outqc_get_distances <- function(base,
   if (is.null(target)) {
     if (!is.null(agg_res)) {
       if (verbose) cat("Aggregating by the resolution of", agg_res, "\n")
-      new_base <- terra::aggregate(base, agg_res/terra::res(base)[1])
+      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]))
       #Get all cells that are not NA
       tg_cells <- terra::as.data.frame(new_base, cells = T, xy = T)
     } else {
@@ -111,7 +111,7 @@ outqc_get_distances <- function(base,
     
     if (!is.null(agg_res)) {
       if (verbose) cat("Aggregating target by the resolution of", agg_res, "\n")
-      new_base <- terra::aggregate(base, agg_res/terra::res(base)[1])
+      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]))
       fgrid <- function(points, nrast){
         #nrast <- rast(resolution = agg_res)
         nrast[] <- NA
@@ -191,8 +191,10 @@ outqc_get_distances <- function(base,
       dist_grid <- terra::aggregate(dist_grid, fact = ag_fact, fun = min, na.rm = T)
 
       new_cell <- terra::cellFromXY(dist_grid, target_cells[index,2:3])
+      new_cell <- format(new_cell, trim = T, scientific = FALSE)
     } else {
       new_cell <- target_cells[index,1]
+      new_cell <- format(new_cell, trim = T, scientific = FALSE)
     }
     
     if (comp_res) {
@@ -239,7 +241,7 @@ outqc_get_distances <- function(base,
              target_cells = tg_cells,
              target_rast = base,
              outf = outfolder,
-             ag_fact = (agg_res/terra::res(base)[1]),
+             ag_fact = ceiling(agg_res/terra::res(base)[1]),
              comp_res = int_comp,
              mc.cores = mc_cores)
   } else {
@@ -371,8 +373,8 @@ outqc_query_distances <- function(pts,
     
     other_pts <- cells_index[-index]
     
-    if (file.exists(paste0(distfolder, "/cell_", target, ".tif"))) {
-      sel_dist_rast <- terra::rast(paste0(distfolder, "/cell_", target, ".tif"))
+    if (file.exists(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"))) {
+      sel_dist_rast <- terra::rast(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"))
       
       other_dist <- sel_dist_rast[other_pts][,1]
       
@@ -385,7 +387,7 @@ outqc_query_distances <- function(pts,
     } else {
       if (try_closest) {
         to_valid <- terra::adjacent(base, target, directions = 8)
-        to_valid_files <- paste0(distfolder, "/cell_", to_valid[1,], ".tif")
+        to_valid_files <- paste0(distfolder, "/cell_", format(to_valid[1,], trim = T, scientific = FALSE), ".tif")
         to_valid_files_ex <- file.exists(to_valid_files)
         if (any(to_valid_files_ex)) {
           new_file <- to_valid_files[which(to_valid_files_ex == TRUE)[1]]

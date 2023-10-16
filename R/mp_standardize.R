@@ -3,7 +3,8 @@
 #' @param species the AphiaID for the species
 #' @param species_folder the folder where the species data is located (default
 #'   is the package standard)
-#' @param geo_out if \code{TRUE} assess geographical outliers
+#' @param geo_out if \code{TRUE} assess geographical outliers. At least 5 records are necessary
+#' for any outlier removal procedure (either geographical or environmental)
 #' @param geo_out_mccore for computing geographic distances in parallel, number
 #'   of cores
 #' @param env_out if \code{TRUE} assess environmental outliers
@@ -180,7 +181,7 @@ mp_standardize <- function(species,
   
   if (nrow(non_dup_recs) > 0) {
     # Perform geographical and environmental outlier removal
-    if (!skip_first_out) {
+    if (!skip_first_out & nrow(non_dup_recs) >= 5) {
       if (geo_out) {
         if (!is.null(sdm_base)) {
           base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
@@ -220,6 +221,10 @@ mp_standardize <- function(species,
                                 EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
         
         non_dup_recs <- cbind(non_dup_recs, non_dup_envtag)
+      }
+    } else {
+      if (!skip_first_out & nrow(non_dup_recs) < 5) {
+        warning(paste0("Less than 5 records for the species ", species, ", impossible to perform outlier removal. \n"))
       }
     }
     
@@ -280,65 +285,75 @@ mp_standardize <- function(species,
         
         non_dup_recs <- do.call("rbind", non_dup_recs_cell)
         
-        if (geo_out) {
-          
-          if (!is.null(sdm_base)) {
-            base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
-          } else {
-            base <- outqc_get_base(0.05)
-          }
-          
-          if (is.na(list.files("data/distances", pattern = ".tif", full.names = T)[1])) {
-            outqc_get_distances(base, target = non_dup_recs[1:4, lonlatdim],
-                                agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
-                                mc_cores = geo_out_mccore, verbose = F)
-          }
-          
-          non_dup_recs$cell <- terra::cellFromXY(
-            terra::rast(list.files("data/distances", pattern = ".tif", full.names = T)[1]),
-            non_dup_recs[,lonlatdim]
-          )
-          
-          non_dup_recs_sing <- non_dup_recs[!duplicated(non_dup_recs$cell),]
-          
-          if (is.null(geo_out_mccore)) {
-            geo_out_mccore <- 1
-          }
-          
-          outqc_get_distances(base, target = non_dup_recs_sing[, lonlatdim],
+        if (!is.null(sdm_base)) {
+          base <- terra::mask(sdm_base, sdm_base, inverse = T, updatevalue = 1)
+        } else {
+          base <- outqc_get_base(0.05)
+        }
+        
+        if (is.null(geo_out_mccore)) {
+          geo_out_mccore <- 1
+        }
+        
+        if (is.na(list.files("data/distances", pattern = ".tif", full.names = T)[1])) {
+          outqc_get_distances(base, target = non_dup_recs[1:4, lonlatdim],
                               agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
                               mc_cores = geo_out_mccore, verbose = F)
+        }
+        
+        non_dup_recs$cell <- terra::cellFromXY(
+          terra::rast(list.files("data/distances", pattern = ".tif", full.names = T)[1]),
+          non_dup_recs[,lonlatdim]
+        )
+        
+        non_dup_recs_sing <- non_dup_recs[!duplicated(non_dup_recs$cell),]
+        
+        if (geo_out) {
           
-          non_dup_geotag <- outqc_geo(non_dup_recs_sing[, lonlatdim],
-                                      dist_folder = "data/distances",
-                                      mc_cores = geo_out_mccore,
-                                      limit_rem = 0.005)
+          if (nrow(non_dup_recs_sing) >= 5) {
+            
+            outqc_get_distances(base, target = non_dup_recs_sing[, lonlatdim],
+                                agg_res = 0.8, outfolder = "data/distances", skip_exists = T,
+                                mc_cores = geo_out_mccore, verbose = F)
+            
+            non_dup_geotag <- outqc_geo(non_dup_recs_sing[, lonlatdim],
+                                        dist_folder = "data/distances",
+                                        mc_cores = geo_out_mccore,
+                                        limit_rem = 0.005)
+            
+            colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
+            
+            # If you want to sum other methods and get an 'ensemble' like metric
+            non_dup_geotag <- cbind(non_dup_geotag,
+                                    GeoTag_all = apply(non_dup_geotag, 1, function(x) sum(x)))
+            
+            non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_geotag)
+          } else {
+            warning(paste0("Less than 5 records (per cell) for the species ", species, ", impossible to perform outlier removal. \n"))
+          }
           
-          colnames(non_dup_geotag) <- paste0("GeoTag_", colnames(non_dup_geotag))
-          
-          # If you want to sum other methods and get an 'ensemble' like metric
-          non_dup_geotag <- cbind(non_dup_geotag,
-                                  GeoTag_all = apply(non_dup_geotag, 1, function(x) sum(x)))
-          
-          non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_geotag)
         }
         
         if (env_out) {
-          non_dup_envtag <- outqc_env(non_dup_recs_sing[, lonlatdim],
-                                      limit_rem = 0.005)
-          
-          colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
-          
-          non_dup_envtag <- cbind(non_dup_envtag,
-                                  EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
-          
-          non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_envtag)
+          if (nrow(non_dup_recs_sing) >= 5) {
+            non_dup_envtag <- outqc_env(non_dup_recs_sing[, lonlatdim],
+                                        limit_rem = 0.005)
+            
+            colnames(non_dup_envtag) <- paste0("EnvTag_", colnames(non_dup_envtag))
+            
+            non_dup_envtag <- cbind(non_dup_envtag,
+                                    EnvTag_all = apply(non_dup_envtag, 1, function(x) sum(x)))
+            
+            non_dup_recs_sing <- cbind(non_dup_recs_sing, non_dup_envtag)
+          }
         }
         
         if (geo_out | env_out) {
-          non_dup_recs_sing <- non_dup_recs_sing[,4:ncol(non_dup_recs_sing)]
-          non_dup_recs <- dplyr::left_join(non_dup_recs, non_dup_recs_sing, by = "cell")
-          non_dup_recs <- non_dup_recs[,colnames(non_dup_recs) != "cell"]
+          if (nrow(non_dup_recs_sing) >= 5) {
+            non_dup_recs_sing <- non_dup_recs_sing[,4:ncol(non_dup_recs_sing)]
+            non_dup_recs <- dplyr::left_join(non_dup_recs, non_dup_recs_sing, by = "cell")
+            non_dup_recs <- non_dup_recs[,colnames(non_dup_recs) != "cell"]
+          }
         }
         
       }
