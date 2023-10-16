@@ -459,7 +459,7 @@ sdm_geemod_maxent <- function(sdm_data, method = "maxnet",
   )$train(
     features = training_dat,
     classProperty = 'presence',
-    inputProperties = image$bandNames()
+    inputProperties = region_rast$bandNames()
   )
   
   # Predict to full data ----
@@ -483,9 +483,9 @@ sdm_geemod_maxent <- function(sdm_data, method = "maxnet",
   # Export predictions ----
   for (i in 1:length(pred_assets)) {
     task_img <- ee_image_to_drive(
-      image = predictions$get((i-1)),
+      image = ee$Image(predictions$get((i-1))),
       fileFormat = "GEO_TIFF",
-      fileNamePrefix = paste0(sp_code, "_geemax_", names(pred_assets)[i])
+      fileNamePrefix = paste0(sp_code$getInfo(), "_geemax_", names(pred_assets)[i])
     )
     
     task_img$start()
