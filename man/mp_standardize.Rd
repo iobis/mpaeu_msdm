@@ -64,7 +64,7 @@ This function aims to standardize (i.e. prepare) the occurrence data
 for use on the SDM. It does not have much flexibility in terms of arguments -
 and this is in purpose, as the aim is to produce one particular configuration
 for the SDMs. However, all the underlying functions are available for the user
-in the package, so it can assembly its own 'standardize' function.
+in the package, so you can assembly your own 'standardize' function.
 
 The function will perform the following steps:
 \enumerate{

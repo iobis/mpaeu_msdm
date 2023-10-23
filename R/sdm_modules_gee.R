@@ -214,6 +214,7 @@ sdm_geemod_maxent <- function(sdm_data, method = "maxnet",
   back_points <- zones$sample(
     region = zones$geometry(),
     geometries = TRUE
+    , scale = 12000
   )
   
   back_points <- back_points$randomColumn(seed = 2)
@@ -337,6 +338,32 @@ sdm_geemod_maxent <- function(sdm_data, method = "maxnet",
     
     regmult <- all_parameters$get(0)
     hingefeat <- all_parameters$get(1)
+    
+    training = training_dat$filter(ee$String(ee$String("fold != ")$cat(ee$Number(1)$format())))
+    testing = training_dat$filter(ee$String(ee$String("fold == ")$cat(ee$Number(1)$format())))
+    
+    maxclassifier <- ee$Classifier$amnhMaxent(
+      autoFeature = FALSE,
+      linear = TRUE,
+      quadratic = TRUE,
+      product = FALSE,
+      threshold = FALSE,
+      hinge = hingefeat, # Only hinge variable
+      addSamplesToBackground = FALSE,
+      betaMultiplier = ee$Number(regmult) # regularization multiplier
+    )$train(
+      features = training,
+      classProperty = 'presence',
+      inputProperties = region_rast$bandNames()
+    )
+    
+    testpred <- ee$FeatureCollection(testing$classify(maxclassifier))
+    testpred <- region_rast$classify(maxclassifier)
+    
+    auc_val <- get_auc_tun(testpred)
+    
+    
+    
     
     cv_model <- function(fold) {
       

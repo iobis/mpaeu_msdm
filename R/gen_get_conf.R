@@ -35,9 +35,9 @@ gen_configuration <- function(filename = "sdm_conf.yml", outdir = ".") {
 groups:
   photosynthesizers: kingdom == 'Chromista' | kingdom == 'Plantae'
 # Put here the list of variables that will be used for each group
-# The order is variables (don't edit) > group name (should be equal to the previous section) > hypothesis# > list of variables
-# setting an hypothesis (hypothesis{number of hypothesis}) is useful if you want to test multiple variables settings
-# If you want to use a single hypothesis, simple put hypothesis1.
+# The order is variables (don't edit) > group name (should be equal to the previous section) > 'hypothesis_name' > list of variables
+# setting an hypothesis (by putting an 'hypothesis_name') is useful if you want to test multiple variables settings
+# If you want to use a single hypothesis, simple put only one hypotehsis.
 # Names of variable should be written on the format NAME_VARIANT(e.g. mean, min, max)
 # So, for example, to get the mean temperature for the sea we would set: thetao_mean
 # Example:
@@ -96,7 +96,7 @@ get_conf <- function(conf_file = "sdm_conf.yml", what = c("groups", "variables")
     cli::cli_abort("File {.file {conf_file}} does not exist.")
   }
   
-  conf_res <- yaml.load_file(conf_file, readLines.warn = FALSE)
+  conf_res <- yaml::yaml.load_file(conf_file, readLines.warn = FALSE)
   
   if (!all(what %in% names(conf_res))) {
     cli::cli_abort("'what' should be one of {names(conf_res)}")
@@ -120,6 +120,7 @@ get_conf <- function(conf_file = "sdm_conf.yml", what = c("groups", "variables")
 #' columns that were included as filters on the configuration file
 #' @param conf_file the path for the configuration file
 #' @param not_found_value which value use when the function is unable to establish a group
+#' 
 #'
 #' @return the species list with a new column called "sdm_group"
 #' @export
@@ -135,6 +136,7 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
   
   new_list <- species_list
   new_list$sdm_group <- NA
+  new_list[is.na(new_list)] <- ""
   
   for (i in 1:length(groups_conf$groups)) {
     
@@ -171,7 +173,7 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
     
   }
   
-  new_list[is.na(new_list)] <- not_found_value
+  new_list$sdm_group[is.na(new_list$sdm_group)] <- not_found_value
   
   return(new_list)
   
@@ -225,7 +227,7 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
 #'
 #' If you used the function [get_envlayers()] to download from the Bio-ORACLE,
 #' then the function will work without any problem. However, if you added
-#' additional layers take this into account that the function expect that layers names contains three pieces of information 
+#' additional layers take into account that the function expect that layers names contains three pieces of information 
 #' separated by underscores or dashes: name of variable, depth,
 #' and variant (e.g. max). One example: siconc_baseline_depthsurf_mean. Note that here you have 
 #' additional information, what is fine if you have the essential information. For fixed ones,
@@ -278,7 +280,7 @@ get_envofgroup <- function(group,
     surface_name <- "depthsurf"
   }
   
-  layers_list <- groups_conf <- get_conf(conf_file = conf_file, what = "variables")
+  layers_list <- get_conf(conf_file = conf_file, what = "variables")
   
   layers_list <- layers_list$variables[[group]]
   
@@ -312,7 +314,7 @@ get_envofgroup <- function(group,
   all_layers$file_path <- NA
   
   for (i in 1:nrow(all_layers)) {
-    f_sel <- f_base[grepl(all_layers$name[i], f_base)]
+    f_sel <- f_base[grepl(paste0(all_layers$name[i], "_"), f_base)]
     f_sel <- f_sel[grepl(paste0(c("_", "-"), all_layers$variant[i], collapse = "|"), f_sel)]
     f_final <- f_sel[grepl(depth, f_sel)]
     
@@ -356,7 +358,7 @@ get_envofgroup <- function(group,
             f_base_kf <- f_base_kf[grepl(paste0(accepted_formats, collapse = "|"), f_base_kf)]
             f_base_kf <- f_base_kf[!grepl("aux|xml", f_base_kf)] # Remove aux or xml files
             
-            f_sel <- f_base_kf[grepl(all_layers$name[i], f_base_kf)]
+            f_sel <- f_base_kf[grepl(paste0(all_layers$name[i], "_"), f_base_kf)]
             f_sel <- f_sel[grepl(paste0(c("_", "-"), all_layers$variant[i], collapse = "|"), f_sel)]
             f_final <- f_sel[grepl(depth, f_sel)]
             
@@ -387,7 +389,12 @@ get_envofgroup <- function(group,
     
   }
   
-  if (verbose & any(is.na(all_layers$file_path))) cli::cli_alert_danger("The following variable{?s} {?was/were} not found: {not_found}")
+  if (verbose & any(is.na(all_layers$file_path))) {
+    cli::cli_alert_danger("The following variable{?s} {?was/were} not found: 
+                          {paste(all_layers$name[is.na(all_layers$file_path)],
+                          all_layers$variant[is.na(all_layers$file_path)],
+                          sep = '_')}")
+  }
   
   all_layers <- all_layers[!is.na(all_layers$file_path),]
   

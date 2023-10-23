@@ -374,7 +374,16 @@ outqc_query_distances <- function(pts,
     other_pts <- cells_index[-index]
     
     if (file.exists(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"))) {
-      sel_dist_rast <- terra::rast(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"))
+      sel_dist_rast <- suppressWarnings(
+        try(terra::rast(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif")),
+            silent = T)
+      )
+      
+      if (class(sel_dist_rast)[1] == "try-error") {
+        warning("File ", paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"), " is corrupted. Removing it and ignoring.\n")
+        file.remove(paste0(distfolder, "/cell_", format(target, scientific = FALSE), ".tif"))
+        return(list(dist = NA, id = NA))
+      }
       
       other_dist <- sel_dist_rast[other_pts][,1]
       
@@ -392,7 +401,13 @@ outqc_query_distances <- function(pts,
         if (any(to_valid_files_ex)) {
           new_file <- to_valid_files[which(to_valid_files_ex == TRUE)[1]]
           
-          sel_dist_rast <- terra::rast(new_file)
+          sel_dist_rast <- suppressWarnings(try(terra::rast(new_file), silent = T))
+          
+          if (class(sel_dist_rast)[1] == "try-error") {
+            warning("File ", new_file, " is corrupted. Removing it and ignoring.\n")
+            file.remove(new_file)
+            return(list(dist = NA, id = NA))
+          }
           
           other_dist <- sel_dist_rast[other_pts][,1]
           

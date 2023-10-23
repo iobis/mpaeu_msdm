@@ -82,7 +82,7 @@ searching in the fixed folder.
 \section{Using user supplied layers vs package layers}{
 If you used the function \code{\link[=get_envlayers]{get_envlayers()}} to download from the Bio-ORACLE,
 then the function will work without any problem. However, if you added
-additional layers take this into account that the function expect that layers names contains three pieces of information
+additional layers take into account that the function expect that layers names contains three pieces of information
 separated by underscores or dashes: name of variable, depth,
 and variant (e.g. max). One example: siconc_baseline_depthsurf_mean. Note that here you have
 additional information, what is fine if you have the essential information. For fixed ones,

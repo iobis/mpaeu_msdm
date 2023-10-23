@@ -26,6 +26,7 @@
 #'  Those should be named exactly as the \code{env_layers} and in the same order.
 #'  Supplying the pre-defined quadrature points can speed-up the process when several
 #'  runs will take place. If this is supplied, \code{gen_quad} is ignored
+#' @param verbose should messages be printed
 #' 
 #' @return an object of class sdm_dat containing the data for SDMs
 #' @export
@@ -35,7 +36,7 @@
 #'   mp_prepare_data(training_data, env_layers = env)
 #' }
 mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp = NULL, env_layers,
-                            gen_quad = TRUE, quad_number = NULL, pred_quad = NULL) {
+                            gen_quad = TRUE, quad_number = NULL, pred_quad = NULL, verbose = TRUE) {
   
   if (missing(species_id)) {
     cli::cli_abort("A species_id must be supplied")
@@ -56,12 +57,12 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
   if (gen_quad) {
     if (is.null(quad_number)) {
       quad_number <- 10000
-      cli::cli_alert_info("Number of quadrature points not supplied. Using 10000.")
+      if (verbose) cli::cli_alert_info("Number of quadrature points not supplied. Using 10000.")
     }
     
     # quad_data <- spatSample(env_layers, size = quad_number,
     #                         na.rm = T, xy = T)
-    xy_d <- as.data.frame(env_layers[[1]], xy = T)[,1:2]
+    xy_d <- as.data.frame(env_layers, xy = T, na.rm = T)[,1:2]
     colnames(xy_d) <- c("decimalLongitude", "decimalLatitude")
     xy_d <- xy_d[sample(1:nrow(xy_d), size = quad_number, replace = FALSE),]
     quad_data <- cbind(xy_d, presence = 0, terra::extract(env_layers, xy_d, ID = F))
@@ -70,7 +71,7 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
     
     if (any(is.na(training_data))) {
       nas <- apply(training_data, 1, sum)
-      cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from training data.")
+      if (verbose) cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from training data.")
       training_data <- training_data[!is.na(nas), ]
     }
   }
@@ -84,7 +85,7 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
     
     if (any(is.na(training_data))) {
       nas <- apply(training_data, 1, sum)
-      cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from training data.")
+      if (verbose) cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from training data.")
       training_data <- training_data[!is.na(nas), ]
     }
     
@@ -106,7 +107,7 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
     
     if (any(is.na(eval_data))) {
       nas <- apply(eval_data, 1, sum)
-      cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from evaluation data.")
+      if (verbose) cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from evaluation data.")
       training_data <- training_data[!is.na(nas), ]
     }
     

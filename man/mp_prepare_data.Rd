@@ -12,7 +12,8 @@ mp_prepare_data(
   env_layers,
   gen_quad = TRUE,
   quad_number = NULL,
-  pred_quad = NULL
+  pred_quad = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -41,6 +42,8 @@ a column named presence with values of 0, and the values for the variables.
 Those should be named exactly as the \code{env_layers} and in the same order.
 Supplying the pre-defined quadrature points can speed-up the process when several
 runs will take place. If this is supplied, \code{gen_quad} is ignored}
+
+\item{verbose}{should messages be printed}
 }
 \value{
 an object of class sdm_dat containing the data for SDMs

@@ -257,7 +257,8 @@ manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50) {
   # Sample for i iterations
   for (i in 1:iterations) {
     user_grid[] <- sample(1:k, ncell(user_grid), replace = T)
-    cell_vals <- user_grid[which_cell][,1]
+    #cell_vals <- user_grid[which_cell][,1]
+    cell_vals <- terra::extract(user_grid, which_cell)[,1]
     df_res <- data.frame(fold = 1:k, pres = NA, back = NA)
     for (z in 1:k) {
       df_res$pres[z] <- length(data_pts$presence[data_pts$presence == 1 & cell_vals == z])
