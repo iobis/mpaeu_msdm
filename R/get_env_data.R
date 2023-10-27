@@ -3,13 +3,22 @@
 #' @param datasets an optional character vector of datasets
 #' @param future_scenarios an optional vector of future scenarios
 #' @param time_steps an optional named list of time steps (see details)
-#' @param variables an optional vector of the variants that you want (e.g. mean, min, max)
+#' @param longitude an optional numeric vector with two values of the longitude
+#'   boundaries (lower, upper). If \code{NULL}, the whole dimension is used. If
+#'   supplied, latitude should also be given.
+#' @param latitude an optional numeric vector with two values of the latitude
+#'   boundaries (lower, upper). If \code{NULL}, the whole dimension is used. If
+#'   supplied, longitude should also be given.
+#' @param variables an optional vector of the variants that you want (e.g. mean,
+#'   min, max)
 #' @param terrain_vars an optional vector of terrain variables
 #' @param outdir the output directory
-#' @param skip_exist if \code{TRUE} (default) the function will skip existent files
-#' @param keep_raw wether or not should the folder with raw files be kept (recommended is FALSE to save space)
+#' @param skip_exist if \code{TRUE} (default) the function will skip existent
+#'   files
+#' @param keep_raw wether or not should the folder with raw files be kept
+#'   (recommended is FALSE to save space)
 #' @param verbose print messages to track download
-#'
+#' 
 #' @return saved files
 #' @export
 #' 
@@ -18,8 +27,10 @@
 #' To see all available options, visit:
 #' https://erddap.bio-oracle.org/erddap/griddap/index.html?page=1&itemsPerPage=1000
 #' 
-#' We use the biooracler package which is still not on CRAN (but soon will be). If
-#' you run the function and does not have it installed, the function will print an
+#' This function is basically a wrapper around the download_layers function of the
+#' biooracler package which is still not on CRAN (soon will be), but will save
+#' all files according to the project standard.
+#' If you run the function and does not have biooracler installed, the function will print an
 #' error with the GitHub address to install it.
 #' 
 #' The files are saved on the following structure
@@ -72,14 +83,30 @@
 #' # In general, available are: min, mean, max, range, ltmin, ltmax, and sd
 #' vars <- c("min", "mean", "max")
 #' 
+#' # To define a certain latitude and longitude, you can do like this:
+#' long <- c(-40, 40)
+#' lat <- c(0, 50)
+#' # But to download the whole world, just don't supply lon/lat to the function
+#' 
 #' get_env_data(datasets = datasets, future_scenarios = future_scenarios,
 #'              time_steps = time_steps, variables = vars,
 #'              terrain_vars = "bathymetry_mean")
+#'              
+#' # To visualize
+#' library(terra)
+#' 
+#' thetao_current <- rast("data/env/current/thetao_baseline_depthmean_mean.tif")
+#' plot(thetao_current)
+#' 
+#' thetao_ssp1_100 <- rast("data/env/future/ssp126/thetao_ssp126_depthmean_dec100_mean.tif")
+#' plot(thetao_ssp1_100)
 #' 
 #' }
 get_env_data <- function(datasets = NULL,
                          future_scenarios = NULL,
                          time_steps = NULL,
+                         latitude = NULL,
+                         longitude = NULL,
                          variables = c("min", "mean", "max"),
                          terrain_vars = NULL,
                          outdir = "data/env/",
@@ -147,7 +174,13 @@ get_env_data <- function(datasets = NULL,
               if (verbose) cli::cli_progress_step("Downloading {sel_var} - {period}", spinner = T,
                                 msg_failed = "Variable {id} [{sel_var}] not available")
               
-              var <- try(download_dataset(tolower(id), sel_var, list(time = time_steps[[ts]]), fmt = "raster",
+              if (!is.null(latitude) & !is.null(longitude)) {
+                constraint <- list(time = time_steps[[ts]], latitude = latitude, longitude = longitude)
+              } else {
+                constraint <- list(time = time_steps[[ts]])
+              }
+              
+              var <- try(download_layers(tolower(id), sel_var, constraint, fmt = "raster",
                                           directory = rawdir,
                                           verbose = verbose), silent = T) # Set verbose=TRUE to debug
               
@@ -185,7 +218,13 @@ get_env_data <- function(datasets = NULL,
                 if (verbose) cli::cli_progress_step("Downloading {scen} - {sel_var} - {period}", spinner = T,
                                   msg_failed = "Variable {mod_id}, scenario {scen} [{sel_var}], period {period} not available")
                 
-                var <- try(download_dataset(tolower(mod_id), sel_var, list(time = time_steps[[ts]]), fmt = "raster",
+                if (!is.null(latitude) & !is.null(longitude)) {
+                  constraint <- list(time = time_steps[[ts]], latitude = latitude, longitude = longitude)
+                } else {
+                  constraint <- list(time = time_steps[[ts]])
+                }
+                
+                var <- try(download_layers(tolower(mod_id), sel_var, constraint, fmt = "raster",
                                             directory = rawdir,
                                             verbose = verbose), silent = T) # Set verbose=TRUE to debug
                 
@@ -219,8 +258,14 @@ get_env_data <- function(datasets = NULL,
           if (verbose) cli::cli_progress_step("Downloading terrain {tv}", spinner = T,
                                               msg_failed = "Variable {tv} not available")
           
-          var <- try(download_dataset("terrain_characteristics", tv,
-                                      list(time = c("1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z")), fmt = "raster",
+          if (!is.null(latitude) & !is.null(longitude)) {
+            constraint <- list(time = c("1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"), latitude = latitude, longitude = longitude)
+          } else {
+            constraint <- list(time = c("1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"))
+          }
+          
+          var <- try(download_layers("terrain_characteristics", tv,
+                                      constraint, fmt = "raster",
                                       directory = rawdir,
                                       verbose = verbose), silent = T) # Set verbose=TRUE to debug
           

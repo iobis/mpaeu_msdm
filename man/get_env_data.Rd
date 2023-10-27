@@ -8,6 +8,8 @@ get_env_data(
   datasets = NULL,
   future_scenarios = NULL,
   time_steps = NULL,
+  latitude = NULL,
+  longitude = NULL,
   variables = c("min", "mean", "max"),
   terrain_vars = NULL,
   outdir = "data/env/",
@@ -23,15 +25,26 @@ get_env_data(
 
 \item{time_steps}{an optional named list of time steps (see details)}
 
-\item{variables}{an optional vector of the variants that you want (e.g. mean, min, max)}
+\item{latitude}{an optional numeric vector with two values of the latitude
+boundaries (lower, upper). If \code{NULL}, the whole dimension is used. If
+supplied, longitude should also be given.}
+
+\item{longitude}{an optional numeric vector with two values of the longitude
+boundaries (lower, upper). If \code{NULL}, the whole dimension is used. If
+supplied, latitude should also be given.}
+
+\item{variables}{an optional vector of the variants that you want (e.g. mean,
+min, max)}
 
 \item{terrain_vars}{an optional vector of terrain variables}
 
 \item{outdir}{the output directory}
 
-\item{skip_exist}{if \code{TRUE} (default) the function will skip existent files}
+\item{skip_exist}{if \code{TRUE} (default) the function will skip existent
+files}
 
-\item{keep_raw}{wether or not should the folder with raw files be kept (recommended is FALSE to save space)}
+\item{keep_raw}{wether or not should the folder with raw files be kept
+(recommended is FALSE to save space)}
 
 \item{verbose}{print messages to track download}
 }
@@ -46,8 +59,10 @@ Environmental layers are downloaded from the Bio-ORACLE ERDDAP server
 To see all available options, visit:
 https://erddap.bio-oracle.org/erddap/griddap/index.html?page=1&itemsPerPage=1000
 
-We use the biooracler package which is still not on CRAN (but soon will be). If
-you run the function and does not have it installed, the function will print an
+This function is basically a wrapper around the download_layers function of the
+biooracler package which is still not on CRAN (soon will be), but will save
+all files according to the project standard.
+If you run the function and does not have biooracler installed, the function will print an
 error with the GitHub address to install it.
 
 The files are saved on the following structure
@@ -100,9 +115,23 @@ time_steps <- list(
 # In general, available are: min, mean, max, range, ltmin, ltmax, and sd
 vars <- c("min", "mean", "max")
 
+# To define a certain latitude and longitude, you can do like this:
+long <- c(-40, 40)
+lat <- c(0, 50)
+# But to download the whole world, just don't supply lon/lat to the function
+
 get_env_data(datasets = datasets, future_scenarios = future_scenarios,
              time_steps = time_steps, variables = vars,
              terrain_vars = "bathymetry_mean")
+             
+# To visualize
+library(terra)
+
+thetao_current <- rast("data/env/current/thetao_baseline_depthmean_mean.tif")
+plot(thetao_current)
+
+thetao_ssp1_100 <- rast("data/env/future/ssp126/thetao_ssp126_depthmean_dec100_mean.tif")
+plot(thetao_ssp1_100)
 
 }
 }
