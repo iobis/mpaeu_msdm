@@ -33,6 +33,8 @@ Imports:
     randomForest,
     dismo,
     lightgbm,
-    mgcv
+    mgcv,
+    fs,
+    yaml
 Suggests:
     ggplot2
