@@ -96,7 +96,7 @@ get_conf <- function(conf_file = "sdm_conf.yml", what = c("groups", "variables")
     cli::cli_abort("File {.file {conf_file}} does not exist.")
   }
   
-  conf_res <- yaml::read_yaml(conf_file, readLines.warn = FALSE)
+  conf_res <- yaml::read_yaml(conf_file)
   
   if (!all(what %in% names(conf_res))) {
     cli::cli_abort("'what' should be one of {names(conf_res)}")
