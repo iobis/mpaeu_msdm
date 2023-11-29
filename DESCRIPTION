@@ -35,6 +35,8 @@ Imports:
     lightgbm,
     mgcv,
     fs,
-    yaml
+    yaml,
+    ecodist,
+    spThin
 Suggests:
     ggplot2

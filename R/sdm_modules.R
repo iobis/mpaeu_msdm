@@ -1303,7 +1303,8 @@ sdm_module_maxent <- function(sdm_data, method = "maxnet",
   
   tune_grid <- expand.grid(
     remult = seq(0.5, 2, 0.5),
-    features = c("lq", "lqh"),
+    features = c("lq"#, "lqh" # Remove hinge features
+                 ),
     stringsAsFactors = F
   )
   

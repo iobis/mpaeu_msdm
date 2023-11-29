@@ -603,3 +603,58 @@ save_sdm <- function(model, what, where) {
   }
   return(invisible(NULL))
 }
+
+
+
+#' Assess the importance of variables for the model
+#'
+#' @param model 
+#' @param sdm_data 
+#' @param iterations 
+#'
+#' @return
+#' @export
+#' 
+#' @details
+#' This function calculates the importance of variables using the same principle
+#' of [randomForest::randomForest()] and [biomod2::bm_VariablesImportance()].
+#' 
+#' Once each time, a variable is shuffled and a new prediction is made. The importance of the variable
+#' is given as 1-(correlation between original and new prediction). Each variable
+#' is shuffled several times (controled by the argument \code{iterations}) and the 
+#' function returns the mean and standard deviation. The higher the score, higher is
+#' the importance of the variable for the model.
+#' 
+#'
+#' @examples
+variable_importance <- function(model, sdm_data, iterations = 10) {
+  
+  pred_data <- sdm_data$training[,2:ncol(sdm_data$training)]
+  
+  original_pred <- predict(model, pred_data)
+  
+  var_import <- data.frame(
+    variable = names(pred_data),
+    mean = NA,
+    sd = NA
+  )
+  
+  for (i in 1:ncol(pred_data)) {
+    cor_val <- c()
+    
+    for (z in 1:iterations) {
+      working_data <- pred_data
+      
+      working_data[,i] <- working_data[sample.int(nrow(working_data)),i]
+      
+      new_pred <- predict(model, working_data)
+      
+      cor_val <- c(cor_val, (1 - cor(original_pred, new_pred)))
+    }
+    
+    var_import$mean[i] <- mean(cor_val, na.rm = T)
+    var_import$sd[i] <- sd(cor_val, na.rm = T)
+  }
+  
+  var_import
+}
