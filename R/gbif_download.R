@@ -25,14 +25,20 @@
 #'   download will fail - see [rgbif::occ_download()]).
 #' @param absence only include absence records (\code{TRUE}), exclude absence
 #'   records (\code{NULL}) or include absence records (\code{include}).
-#' @param username the GBIF username, if not stored on the R environment (see
-#'   details).
-#' @param password the GBIF password, if not stored on the R environment (see
-#'   details).
 #' @param exclude if \code{NULL} include all types of specimens. Alternatively,
 #'   you can pass a vector of types of specimen to exclude (e.g. supplying
 #'   \code{c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")} will exclude fossils and
 #'   living specimens).
+#' @param mode one of \code{search}, \code{cell} or \code{download}. Search will
+#'   use the [rgbif::occ_search()] function, and have a limit of 200.000
+#'   records. It is a good approach to fast results, but in general
+#'   \code{download} should be used (see details). Mode \code{cell} uses the
+#'   GBIF mapper API through the package [speedy] and returns cell records
+#'   aggregated in a certain resolution.
+#' @param username the GBIF username, if not stored on the R environment (see
+#'   details).
+#' @param password the GBIF password, if not stored on the R environment (see
+#'   details).
 #' @param format format to download. One of \code{"SIMPLE_CSV"} or
 #'   \code{"SIMPLE_PARQUET"}. If \code{NULL} (default), then a simple CSV is
 #'   downloaded.
@@ -48,6 +54,7 @@
 #' @param raw_path the path to the download folder. If \code{NULL}, the working
 #'   folder is used. Ignored if \code{wait} is \code{FALSE}.
 #' @param import if \code{TRUE}, the data is imported as a data frame.
+#' @param cell_resolution if \code{mode = "cell"}, which resolution to use.
 #' @param verbose if \code{TRUE} messages are printed.
 #' 
 #' @return a data frame containing occurrences or a GBIF download object.
@@ -65,18 +72,20 @@ occurrence_gbif <- function(scientificname = NULL,
                             enddepth = NULL,
                             geometry = NULL,
                             absence = NULL,
+                            exclude = NULL,
+                            mode = "search",
                             username = NULL,
                             password = NULL,
-                            exclude = NULL,
                             format = NULL,
                             wait = TRUE,
                             raw_path = NULL,
                             import = TRUE,
+                            cell_resolution = NULL,
                             verbose = FALSE) {
   
   # Check arguments
   args <- as.list(environment())
-  args <- args[!grepl("verbose|username|password|format|wait", names(args))]
+  args <- args[!grepl("verbose|username|password|format|wait|mode|cell_resolution", names(args))]
   
   if (all(is.null(unlist(args)))) {
     stop("You should supply at least one predicate.")
@@ -86,9 +95,11 @@ occurrence_gbif <- function(scientificname = NULL,
     format <- "SIMPLE_CSV"
   }
   
-  # Get GBIF user/password
-  username <- .get_user_pass(username, "username")
-  password <- .get_user_pass(password, "password")
+  if (mode == "download") {
+    # Get GBIF user/password
+    username <- .get_user_pass(username, "username")
+    password <- .get_user_pass(password, "password")
+  }
   
   # Get predicates
   pred_occ <- list(pred("hasCoordinate", TRUE))

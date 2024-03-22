@@ -58,26 +58,13 @@ use the base Arrow capability to split the file, so it's really fast.
 \subsection{How Files are saved?}{
 
 Files will be saved on "data/species" (if the folder does not exist on the
-working directory it will be created) following a hive structure:
-\itemize{
-\item key='grouping key of the species'
-\item date='date being generated'
-\item ftype='type of file, i.e., which database generated'
-}
+working directory it will be created) and then a folder for each species,
+using the code key=AphiaID. Files are saved with the date of generation.
 
 So, for a species with AphiaID 12345, from OBIS,
-downloaded on 2023-01-05, a folder would be structured as that:
+downloaded (or processed) on 2023-01-05, a folder would be structured as that:
 
-data/species/key=12345/date=20230105
-
-With the following folder inside:
-ftype=obis/
-
-With a file called spdata0.parquet.
-
-This structure enables easy indexing and querying with multiple species, specially
-when working with parquet datasets. Each of those keys will become a filtering feature.
-For more details see \code{\link[arrow:open_dataset]{arrow::open_dataset()}}
+data/species/key=12345/obis_20230105.parquet
 }
 
 \subsection{Changing the key}{

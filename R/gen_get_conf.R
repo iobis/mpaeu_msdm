@@ -135,8 +135,10 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
   groups_conf <- get_conf(conf_file = conf_file, what = "groups")
   
   new_list <- species_list
-  new_list$sdm_group <- NA
   new_list[is.na(new_list)] <- ""
+  new_list$sdm_group <- NA
+  
+  conditions_agg <- rep(NA, length(groups_conf$groups))
   
   for (i in 1:length(groups_conf$groups)) {
     
@@ -165,13 +167,17 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
     
     t_conditions <- groups_conf$groups[[i]]
     
-    new_list <- eval(parse(text = glue::glue(
-      "dplyr::mutate(new_list,
-                     sdm_group = ifelse({t_conditions},
-                                        names(groups_conf$groups)[i], sdm_group))"
-    )))
+    conditions_agg[i] <- paste(t_conditions, "~", paste0("'", names(groups_conf$groups)[i], "'"))
     
   }
+  
+  new_list <- eval(parse(text = glue::glue(
+    "dplyr::mutate(new_list,
+                     sdm_group = case_when(
+    {paste(conditions_agg, collapse = ', ')}
+                     )
+    )"
+  )))
   
   new_list$sdm_group[is.na(new_list$sdm_group)] <- not_found_value
   
@@ -191,8 +197,11 @@ get_listbygroup <- function(species_list, conf_file = "sdm_conf.yml",
 #'   future/past. See details
 #' @param period optional character indicating the period
 #' @param hypothesis if \code{NULL}, it will retrieve the first available
-#'   hypothesis list. Otherwise, it will look for the list equivalent to the
+#'   hypothesis list (or all if \code{load_all=TRUE, see below}).
+#'   Otherwise, it will look for the list equivalent to the
 #'   hypothesis. Should be a character (e.g. "hypothesis1")
+#' @param load_all if \code{TRUE} it will load the unique files from all
+#' available hypothesis for that group.
 #' @param conf_file the path for the YAML configuration file
 #' @param env_folder the path for the environmental layers folder
 #' @param fixed_name the name of the folder containing the fixed or non variable
@@ -264,6 +273,7 @@ get_envofgroup <- function(group,
                            scenario = "current",
                            period = NULL,
                            hypothesis = NULL,
+                           load_all = FALSE,
                            conf_file = "sdm_conf.yml",
                            env_folder = "data/env",
                            future_name = "future",
@@ -285,7 +295,12 @@ get_envofgroup <- function(group,
   layers_list <- layers_list$variables[[group]]
   
   if (is.null(hypothesis)) {
-    layers_list <- layers_list[[1]]
+    if (load_all) {
+      hyp_list <- layers_list
+      layers_list <- unique(unlist(layers_list))
+    } else {
+      layers_list <- layers_list[[1]]
+    }
   } else {
     layers_list <- layers_list[[hypothesis]]
   }
@@ -409,6 +424,11 @@ get_envofgroup <- function(group,
   ))
   
   if (verbose) cli::cli_alert_info("Names were changed (from > to) {paste(attr(rast_loaded, 'old_names'), names(rast_loaded), sep = ' > ')}")
+  
+  if (load_all) {
+    rast_loaded <- list(layers = rast_loaded,
+                        hypothesis = hyp_list)
+  }
   
   return(rast_loaded)
 }

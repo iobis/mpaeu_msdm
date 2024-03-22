@@ -13,9 +13,7 @@ outqc_geo(
   mad_mltp = 6,
   isoforest_th = 0.8,
   mdist_method = "mean",
-  limit_rem = 0.01,
-  parallel = TRUE,
-  mc_cores = NULL
+  limit_rem = 0.01
 )
 }
 \arguments{
@@ -42,11 +40,6 @@ Usually mean, but can be "median"}
 \item{limit_rem}{a number between 0 and 1 limiting the percentage of points that can
 be considered outliers. The default value (0.01) says that no more than 1\% of points
 can be outliers}
-
-\item{parallel}{enable parallel computation on the extraction of values from
-the distance layers (see \code{\link[=outqc_query_distances]{outqc_query_distances()}})}
-
-\item{mc_cores}{number of cores to be used by parallel extraction}
 }
 \value{
 a \code{matrix} with columns equal the number of methods used. Each line is

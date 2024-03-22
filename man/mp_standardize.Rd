@@ -6,52 +6,48 @@
 \usage{
 mp_standardize(
   species,
-  species_folder = "data/species/",
+  species_list,
+  sdm_base,
+  species_folder = "data/raw",
+  species_outfolder = "data/species",
   geo_out = TRUE,
-  geo_out_mccore = NULL,
   env_out = TRUE,
-  prepare_sdm = TRUE,
-  skip_first_out = TRUE,
-  sdm_base = NULL,
   remove_land = TRUE,
-  out_from_cell = TRUE,
-  narm_out = TRUE
+  narm_out = TRUE,
+  add_fao = TRUE,
+  fao_areas = "data/fao_areas.parquet",
+  verbose = TRUE
 )
 }
 \arguments{
 \item{species}{the AphiaID for the species}
 
-\item{species_folder}{the folder where the species data is located (default
-is the package standard)}
-
-\item{geo_out}{if \code{TRUE} assess geographical outliers. At least 5 records are necessary
-for any outlier removal procedure (either geographical or environmental)}
-
-\item{geo_out_mccore}{for computing geographic distances in parallel, number
-of cores}
-
-\item{env_out}{if \code{TRUE} assess environmental outliers}
-
-\item{prepare_sdm}{if \code{TRUE} prepare the data for SDM (see details)}
-
-\item{skip_first_out}{if \code{TRUE} (default), it will perform the outlier checking
-only for the SDM dataset, after converting to 1 per cell (see \code{out_from_cell})}
-
 \item{sdm_base}{a base \code{SpatRaster} in the target resolution. You can
 supply one of the environmental layers that you will use (same extent and
 resolution planned for the SDM)}
+
+\item{species_folder}{the folder where the species data is located (i.e. the
+OBIS and GBIF full exports)}
+
+\item{species_outfolder}{folder to output the files}
+
+\item{geo_out}{if \code{TRUE} assess geographical outliers. Note that at least 5 records are necessary
+for any outlier removal procedure (either geographical or environmental)}
+
+\item{env_out}{if \code{TRUE} assess environmental outliers}
 
 \item{remove_land}{if \code{TRUE} remove points from land. If \code{sdm_base}
 is supplied, will use it as reference. Otherwise, will use the
 \code{\link[obistools:check_onland]{obistools::check_onland()}} function}
 
-\item{out_from_cell}{only relevant when prepare_sdm is set \code{TRUE}. When this
-option is \code{TRUE}, the function will first aggregate each dataset to 1 record per
-cell. Then it will run the outlier procedure again based on the new rarefied set (see details)}
-
-\item{narm_out}{if \code{TRUE} and \code{prepare_sdm = TRUE}, then the function
+\item{narm_out}{if \code{TRUE}, then the function
 will not only remove the outliers, but also any NA value that there is (cells
 for which no distance or environmental information was found)}
+
+\item{add_fao}{if \code{TRUE}, add information from FishBase and SeaLifeBase of where
+the species is native, endemic or introduced, using FAO areas}
+
+\item{fao_areas}{path to parquet file with FAO areas information (see \code{\link[rfishbase:fb_tbl]{rfishbase::fb_tbl()}})}
 }
 \value{
 saved files (see details)

@@ -65,21 +65,17 @@ even if there is a passage). A recommended resolution is of 0.1 degree for the
 base raster. At the same time, this will cause the computation to be much slower
 while also increasing the size of saved cells. In this case, it's interesting to
 aggregate the points to a coarser grid (e.g. 0.5 degrees). This will considerably
-improve computational time while also reducing the size of save files.
+improve computational time while also reducing the size of saved files.
 }
 
 \subsection{Intended use}{
 
 This function will save files with the distance for cell i to all other cells on
-the raster (according to the desired resolution). And why to save? Because later you
-can query the distances. The flux is for a set of points z, get all distances from
-z{i} to z{n-i}. Then query the distances to perform outlier calculations. When you run
-this function on the next dataset, it will run faster because potentially some of the cells
-were already accounted for in the previous calculation. Thus, there is a time improvement each
-time the function is run, up to the point that all cells are calculated.
-
-Alternatively you can pre-calculate the distance to all cells by not supplying the
-\code{target}.
+the raster (according to the desired resolution). You can use those files directly,
+but on the most recent version of the package the intended use is that after
+getting all distances (by not supplying the \code{target}), you run the
+function \code{outqc_dist_tozarr}. This will create a \code{zarr} storage which can
+then be queried by the other functions.
 }
 }
 \examples{
