@@ -192,6 +192,7 @@ gen_log <- function(algos){
   log_obj <- list(
     taxonID = NULL,
     scientificName = NULL,
+    group = NULL,
     model_date = NULL,
     model_acro = NULL,
     model_fit_points = NULL,
@@ -201,7 +202,7 @@ gen_log <- function(algos){
       "list(", paste0(algos, "= unclass(obissdm::sdm_options('", algos, "'))", collapse = ","), ")"
     ))),
     model_result = eval(parse(text = paste0(
-      "list(", paste0(algos, "=", "NULL", collapse = ","), ")"
+      "list(", paste0(c(algos, "ensemble"), "=", "NULL", collapse = ","), ")"
     ))),
     model_bestparams = eval(parse(text = paste0(
       "list(", paste0(algos, "=", "NULL", collapse = ","), ")"
@@ -212,11 +213,16 @@ gen_log <- function(algos){
       limited_by_depth = NULL,
       depth_buffer = NULL,
       block_size = NULL,
-      control_bias = NULL
+      background_size = NULL,
+      control_bias = NULL,
+      hypothesis_tested = NULL,
+      best_hypothesis = NULL,
+      variables = NULL
     ),
     model_posteval = eval(parse(text = paste0(
-      "list(", paste0(algos, "=", "NULL", collapse = ","), ")"
+      "list(", paste0(c(algos, "ensemble", "niche", "hyperniche"), "=", "NULL", collapse = ","), ")"
     ))),
+    timings = NULL,
     obissdm_version = as.character(packageVersion("obissdm"))
   )
   

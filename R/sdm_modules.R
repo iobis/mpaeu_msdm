@@ -1102,7 +1102,7 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
     } else if (method == "dwpr") {
       wt <- rep(1e-6, length(p))
       wt[p == 0] <- total_area/sum(p == 0)
-      train_dat$presence <- p/wt
+      dat$presence <- p/wt
     } else {
       pres <- length(p[p == 1])
       bkg <- length(p[p == 0])
@@ -1286,7 +1286,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     } else if (method == "dwpr") {
       wt <- rep(1e-6, length(p))
       wt[p == 0] <- total_area/sum(p == 0)
-      train_dat$presence <- p/wt
+      dat$presence <- p/wt
     } else {
       pres <- length(p[p == 1])
       bkg <- length(p[p == 0])
