@@ -4,13 +4,17 @@
 \alias{resp_curves}
 \title{Generate response curves for the SDM models}
 \usage{
-resp_curves(model, layers, vars = NULL)
+resp_curves(model, layers, sdm_data = NULL, vars = NULL)
 }
 \arguments{
 \item{model}{an object of class \code{sdm_result} returned by one of the SDM
 modules}
 
 \item{layers}{environmental layers used to fit the model (SpatRaster format)}
+
+\item{sdm_data}{optional, an \code{sdm_dat} object containing the fitting data.
+If supplied, a column called \code{in_range} will be added, with \code{0} for values
+out of the training range and \code{1} for those within the range.}
 
 \item{vars}{optional, a vector with names of the variables for which the
 response curves should be obtained.}

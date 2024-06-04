@@ -197,6 +197,9 @@ eval_metrics <- function(original, predicted,
 #' @param model an object of class \code{sdm_result} returned by one of the SDM
 #'   modules
 #' @param layers environmental layers used to fit the model (SpatRaster format)
+#' @param sdm_data optional, an `sdm_dat` object containing the fitting data.
+#'   If supplied, a column called `in_range` will be added, with `0` for values
+#'   out of the training range and `1` for those within the range.
 #' @param vars optional, a vector with names of the variables for which the
 #'   response curves should be obtained.
 #'   
@@ -211,10 +214,16 @@ eval_metrics <- function(original, predicted,
 #' \dontrun{
 #' 
 #' }
-resp_curves <- function(model, layers, vars = NULL) {
+resp_curves <- function(model, layers, sdm_data = NULL, vars = NULL) {
   
   if (is.null(vars)) {
     vars <- names(layers)
+  }
+  
+  if (!is.null(sdm_data)) {
+    input_data <- sdm_data$training[,vars]
+  } else {
+    input_data <- NULL
   }
   
   env_data <- layers[[vars]]
@@ -241,6 +250,12 @@ resp_curves <- function(model, layers, vars = NULL) {
     
     pred_resp$base <- resp_data[,z]
     
+    if (!is.null(input_data)) {
+      inp_range <- range(input_data[,z])
+      pred_resp$in_range <- 0
+      pred_resp$in_range[pred_resp$base >= inp_range[1] & pred_resp$base <= inp_range[2]] <- 1
+    }
+    
     pred_list[[z]] <- pred_resp
     
   }
@@ -248,6 +263,7 @@ resp_curves <- function(model, layers, vars = NULL) {
   names(pred_list) <- vars
   
   pred_list <- dplyr::bind_rows(pred_list, .id = "variable")
+  rownames(pred_list) <- 1:nrow(pred_list)
   
   class(pred_list) <- c("sdm_respcur", class(pred_list))
   
@@ -262,13 +278,38 @@ plot.sdm_respcur <- function(response_curves) {
     stop("response_curves should be an object with columns 'variable', 'response' and 'base'")
   }
   
-  library(ggplot2)
+  require(ggplot2)
   
-  ggplot(response_curves) +
-    geom_line(aes(x = base, y = response), color = "darkblue") +
-    theme_light() +
-    xlab("Value") + ylab("Response") +
-    facet_wrap(~ variable, scales = "free") #free_x
+  if ("in_range" %in% colnames(response_curves)) {
+    # Prepare additional data
+    fake <- data.frame(x = c(0, 0), y = c(0, 0), rg = factor(c(0, 1), levels = c(0,1)))
+    rc_temp <- response_curves[response_curves$in_range == 1,]
+    ab_dat <- tapply(rc_temp$base, rc_temp$variable, function(x) data.frame(min = range(x)[1], max = range(x)[2]))
+    n_ab_dat <- names(ab_dat)
+    ab_dat <- dplyr::bind_rows(ab_dat, .id = "variable")
+    ab_dat$variable <- n_ab_dat
+    
+    ggplot(response_curves) +
+      geom_line(aes(x = base, y = response, color = in_range), show_guide = FALSE) +
+      scale_color_gradientn(colors = c("darkblue", "#7AAC1D")) +
+      geom_vline(data = ab_dat, aes(xintercept = min), color = "darkblue",
+                 linetype = 3, alpha = .5) +
+      geom_vline(data = ab_dat, aes(xintercept = max), color = "darkblue",
+                 linetype = 3, alpha = .5) +
+      geom_point(data = fake, aes(x = x, y = y, fill = rg), shape = 22, alpha = 0) +
+      scale_fill_manual(values = c("darkblue", "#7AAC1D"),
+                        labels = c("Extrapolation", "Fit data"), drop=FALSE, name = "") +
+      guides(fill = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+      theme_light() +
+      xlab("Value") + ylab("Response") +
+      facet_wrap(~ variable, scales = "free") #free_x
+  } else {
+    ggplot(response_curves) +
+      geom_line(aes(x = base, y = response), color = "darkblue") +
+      theme_light() +
+      xlab("Value") + ylab("Response") +
+      facet_wrap(~ variable, scales = "free") #free_x
+  }
   
 }
 
