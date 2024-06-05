@@ -124,6 +124,11 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
       if (verbose) cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from evaluation data.")
       coord_eval <- coord_eval[!is.na(nas), ]
       eval_data <- eval_data[!is.na(nas), ]
+      
+      if (sum(eval_data$presence) < 1) {
+        if (verbose) cli::cli_alert_warning("No presence points on evaluation data after NA removal. Removing evaluation dataset.")
+        eval_data <- coord_eval <- NULL
+      }
     }
     
   } else {
