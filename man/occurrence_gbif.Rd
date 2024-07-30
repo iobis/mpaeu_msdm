@@ -61,7 +61,8 @@ use the \code{\link[rgbif:occ_search]{rgbif::occ_search()}} function, and have a
 records. It is a good approach to fast results, but in general
 \code{download} should be used (see details). Mode \code{cell} uses the
 GBIF mapper API through the package \link{speedy} and returns cell records
-aggregated in a certain resolution.}
+aggregated in a certain resolution. At this moment only \code{download} is
+available.}
 
 \item{username}{the GBIF username, if not stored on the R environment (see
 details).}

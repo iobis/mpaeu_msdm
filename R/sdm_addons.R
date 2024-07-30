@@ -589,7 +589,7 @@ print.sdm_result <- function(x, print_all = FALSE) {
   
   cli::cli_alert_info("Time (in minutes, from start): {paste(names(x$timings), '=', round(x$timings, 2))}")
   cli::cli_alert_info("Best tune parameters: {paste(names(x$parameters), '=', x$parameters)}")
-  cli::cli_alert_info("Tuned using [{x$tune_cv_method}] CV")
+  cli::cli_alert_info("Tuned using [{x$cv_method}] CV")
   
   cli::cli_h3("Metrics for the full model")
   if (length(x$full_metrics) > 3 & !print_all) {
@@ -613,8 +613,8 @@ print.sdm_result <- function(x, print_all = FALSE) {
   if (!is.data.frame(x$cv_metrics)) {
     for (i in 1:length(x$cv_metrics)) {
       cli::cat_line("Cross-validation [", x$cv_method[i], "]")
-      cvm <- apply(x$cv_metrics[[i]], 2, mean)
-      cvsd <- apply(x$cv_metrics[[i]], 2, sd)
+      cvm <- apply(x$cv_metrics[[i]], 2, mean, na.rm=T)
+      cvsd <- apply(x$cv_metrics[[i]], 2, sd, na.rm=T)
       
       m <- paste(names(cvm), "=", round(cvm, 2), "±", round(cvsd, 2))
       names(m) <- rep(">", length(names(m)))
@@ -625,8 +625,8 @@ print.sdm_result <- function(x, print_all = FALSE) {
   } else {
     cli::cat_line("Cross-validated with [", x$cv_method, "]")
     
-    cvm <- apply(x$cv_metrics, 2, mean)
-    cvsd <- apply(x$cv_metrics, 2, sd)
+    cvm <- apply(x$cv_metrics, 2, mean, na.rm = T)
+    cvsd <- apply(x$cv_metrics, 2, sd, na.rm = T)
     
     m <- paste(names(cvm), "=", round(cvm, 2), "±", round(cvsd, 2))
     names(m) <- rep(">", length(names(m)))
@@ -686,6 +686,28 @@ print.sdm_mult_result <- function(x) {
   cli::cat_line(cli::col_silver("# You can access the model using `'object'$model`."))
 }
 
+# Summary methods ----
+
+# Print the SDM result returned by the SDM modules
+#' @export
+summary.sdm_result <- function(x) {
+  cli::cat_line("Model ", x$name)
+  cli::cat_line()
+  cli::cli_rule("Metrics cross-validation")
+  m <- x$cv_metrics
+  m_r <- round(apply(m[,colnames(m) %in% c("auc", "cbi", "prg", "tss_maxsss", "tss_p10")], 2, mean, na.rm = T), 2)
+  cli::cat_print(m_r)
+  if (!is.null(m_rf$eval_metrics)) {
+    cli::cli_rule("Metrics validation")
+    m <- x$eval_metrics
+    m_r <- round(m[names(m) %in% c("auc", "cbi", "prg", "tss_maxsss", "tss_p10")], 2)
+    cli::cat_print(m_r)
+  }
+  cli::cli_rule("Timing")
+  tm <- x$timings
+  cli::cat_print(as.data.frame(tm))
+  return(invisible(NULL))
+}
 
 
 # Predict methods for the models returned by the SDM modules ----
@@ -699,7 +721,8 @@ setMethod("predict", signature(object = "sdm_result"),
             x <- object
             if (class(layers)[1] == "SpatRaster") {
               switch (x$name,
-                      maxnet = predict(layers, x$model, type = "cloglog", na.rm = T, ...),
+                      maxent = predict(layers, x$model, type = "cloglog", na.rm = T, ...),
+                      maxnet = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       brt = predict(layers, x$model, type = "response", na.rm = T, ...),
                       rf_classification_ds = {
                         p <- predict(layers, x$model, type = "prob")
@@ -784,6 +807,7 @@ setMethod("predict", signature(object = "sdm_result"),
               )
             } else {
               switch (x$name,
+                      maxent = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       maxnet = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       brt = predict(x$model, layers, type = "response", na.rm = T, ...),
                       rf_classification_ds = {

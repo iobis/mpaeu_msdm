@@ -29,6 +29,8 @@
 #' to compute, as we don't have any control information of what is indeed an outlier (otherwise we could have removed it!).
 #' After tests with simulated and real data, the 0.8 value seems to be a reasonable threshold.
 #' 
+#' Note that for using this function you need to first run [outqc_get_distances()] to get the distances.
+#' 
 #'
 #' @examples
 #' \dontrun{

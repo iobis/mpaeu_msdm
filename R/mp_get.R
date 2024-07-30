@@ -143,8 +143,19 @@ mp_get_obis <- function(
 #'   \code{data.frame} containing the non matched names.
 #' @export
 #' 
+#' @details
+#' If the download request is very big there is a chance that the function will
+#' fail to process the request. In that case, it will return a download predicate
+#' (see [rgbif::occ_download]). You can then check the status with `rgbif::occ_download_meta(gbif_download)$status`
+#' and download with `rgbif::occ_download_get(gbif_download, path = "data/raw")`
+#' 
+#' An alternative method is provided by [occurrence_gbif_db()], but then is on
+#' user side to organize the data.
+#' 
 #' @import arrow 
 #' @import rgbif
+#' 
+#' @seealso [occurrence_gbif_db(), occurrence_gbif()]
 #'
 #' @examples
 #' \dontrun{
@@ -210,109 +221,116 @@ mp_get_gbif <- function(
     wait = FALSE
   )
   
-  # Check the download status
-  status <- occ_download_meta(gbif_download)$status
-  cli::cli_progress_bar("Waiting for download...")
-  while (status == "RUNNING" | status == "PREPARING") {
-    Sys.sleep(5)
-    cli::cli_progress_update()
-    status <- try(occ_download_meta(gbif_download)$status)
-    if (class(status) == "try-error") {
+  is_done <- try({
+    # Check the download status
+    status <- occ_download_meta(gbif_download)$status
+    cli::cli_progress_bar("Waiting for download...")
+    while (status == "RUNNING" | status == "PREPARING") {
       Sys.sleep(5)
+      cli::cli_progress_update()
       status <- try(occ_download_meta(gbif_download)$status)
+      if (class(status) == "try-error") {
+        Sys.sleep(5)
+        status <- try(occ_download_meta(gbif_download)$status)
+      }
     }
-  }
-  cli::cli_progress_update(force = T)
-  
-  if (status != "SUCCEEDED") {
-    stop("Downloaded failed.")
-  } else {
-    if (mode == "full") {
-      fs::dir_create("data/raw/")
-      dl <- occ_download_get(gbif_download, path = "data/raw")
-      
-      if (is.null(save_acro)) {
-        save_acro <- "full"
-      }
-      
-      unzip(paste0("data/raw/", gbif_download, ".zip"),
-            exdir = "data/raw/")
-      
-      switch (download_format,
-        SIMPLE_CSV = file.rename("data/raw/occurrence.csv", glue::glue("data/raw/gbif_{save_acro}_{format(Sys.Date(), '%Y%m%d')}.csv")),
-        SIMPLE_PARQUET = file.rename("data/raw/occurrence.parquet", glue::glue("data/raw/gbif_{save_acro}_{format(Sys.Date(), '%Y%m%d')}.parquet"))
-      )
-      
-      if (remove_zip) {
-        fs::file_delete(paste0("data/raw/", gbif_download, ".zip"))
-      }
-      
-      if (savelog) {
-        write.table(
-          data.frame(date = attr(gbif_download, "created"),
-                     download_code = as.character(gbif_download),
-                     doi = attr(gbif_download, "doi"),
-                     citation = attr(gbif_download, "citation")),
-          glue::glue("data/gbif_{save_acro}_download_log.txt"), row.names = F
-        )
-      }
+    cli::cli_progress_update(force = T)
+    
+    if (status != "SUCCEEDED") {
+      stop("Downloaded failed. Status = ", status)
     } else {
-      
-      if (is.character(sci_names)) {
-        spnam <- sci_names
-      } else {
-        spnam <- name_usage(sci_names)
-        spnam <- spnam$data$scientificName
-      }
-      
-      spnam <- unlist(stringr::str_split(spnam, pattern = " "))
-      spnam <- paste(spnam[1:2], collapse = " ")
-      spnam <- worrms::wm_records_name(spnam)
-      spnam <- spnam[spnam$status == "accepted", "AphiaID"][1,]
-      spnam <- spnam$AphiaID
-      
-      sppath <- glue::glue("data/species/key={spnam}/date={format(Sys.Date(), '%Y%m%d')}")
-      
-      fs::dir_create(sppath)
-      dl <- occ_download_get(gbif_download, path = sppath)
-      
-      unzip(paste0(sppath, "/", gbif_download, ".zip"),
-            exdir = sppath)
-      
-      if (download_format == "SIMPLE_PARQUET") {
-        da <- open_dataset(paste0(sppath, "/occurrence.parquet"))
-      } else {
-        da <- data.table::fread(paste0(sppath, "/occurrence.csv"))
-      }
-      
-      write_parquet(da, paste0(sppath, "/type=gbif.parquet"))
-      rm(da)
-      
-      switch (download_format,
-        SIMPLE_PARQUET = fs::dir_delete(paste0(sppath, "/occurrence.parquet")),
-        SIMPLE_CSV = fs::dir_delete(paste0(sppath, "/occurrence.csv"))
-      )
-      
-      if (remove_zip) {
-        fs::file_delete(paste0(sppath, "/", gbif_download, ".zip"))
-      }
-      
-      if (savelog) {
-        write.table(
-          data.frame(date = attr(gbif_download, "created"),
-                     doi = attr(gbif_download, "doi")),
-          paste0(sppath, "/type=log_gbif.txt"), row.names = F
+      if (mode == "full") {
+        fs::dir_create("data/raw/")
+        dl <- occ_download_get(gbif_download, path = "data/raw")
+        
+        if (is.null(save_acro)) {
+          save_acro <- "full"
+        }
+        
+        unzip(paste0("data/raw/", gbif_download, ".zip"),
+              exdir = "data/raw/")
+        
+        switch (download_format,
+                SIMPLE_CSV = file.rename("data/raw/occurrence.csv", glue::glue("data/raw/gbif_{save_acro}_{format(Sys.Date(), '%Y%m%d')}.csv")),
+                SIMPLE_PARQUET = file.rename("data/raw/occurrence.parquet", glue::glue("data/raw/gbif_{save_acro}_{format(Sys.Date(), '%Y%m%d')}.parquet"))
         )
+        
+        if (remove_zip) {
+          fs::file_delete(paste0("data/raw/", gbif_download, ".zip"))
+        }
+        
+        if (savelog) {
+          write.table(
+            data.frame(date = attr(gbif_download, "created"),
+                       download_code = as.character(gbif_download),
+                       doi = attr(gbif_download, "doi"),
+                       citation = attr(gbif_download, "citation")),
+            glue::glue("data/gbif_{save_acro}_download_log.txt"), row.names = F
+          )
+        }
+      } else {
+        
+        if (is.character(sci_names)) {
+          spnam <- sci_names
+        } else {
+          spnam <- name_usage(sci_names)
+          spnam <- spnam$data$scientificName
+        }
+        
+        spnam <- unlist(stringr::str_split(spnam, pattern = " "))
+        spnam <- paste(spnam[1:2], collapse = " ")
+        spnam <- worrms::wm_records_name(spnam)
+        spnam <- spnam[spnam$status == "accepted", "AphiaID"][1,]
+        spnam <- spnam$AphiaID
+        
+        sppath <- glue::glue("data/species/key={spnam}/date={format(Sys.Date(), '%Y%m%d')}")
+        
+        fs::dir_create(sppath)
+        dl <- occ_download_get(gbif_download, path = sppath)
+        
+        unzip(paste0(sppath, "/", gbif_download, ".zip"),
+              exdir = sppath)
+        
+        if (download_format == "SIMPLE_PARQUET") {
+          da <- open_dataset(paste0(sppath, "/occurrence.parquet"))
+        } else {
+          da <- data.table::fread(paste0(sppath, "/occurrence.csv"))
+        }
+        
+        write_parquet(da, paste0(sppath, "/type=gbif.parquet"))
+        rm(da)
+        
+        switch (download_format,
+                SIMPLE_PARQUET = fs::dir_delete(paste0(sppath, "/occurrence.parquet")),
+                SIMPLE_CSV = fs::dir_delete(paste0(sppath, "/occurrence.csv"))
+        )
+        
+        if (remove_zip) {
+          fs::file_delete(paste0(sppath, "/", gbif_download, ".zip"))
+        }
+        
+        if (savelog) {
+          write.table(
+            data.frame(date = attr(gbif_download, "created"),
+                       doi = attr(gbif_download, "doi")),
+            paste0(sppath, "/type=log_gbif.txt"), row.names = F
+          )
+        }
       }
     }
-  }
+    
+    if (!is.null(non_match)) {
+      non_match
+    } else {
+      NULL
+    }
+  }, silent = TRUE)
   
-  if (!is.null(non_match)) {
-    return(non_match)
+  if (inherits(is_done, "try-error")) {
+    return(gbif_download)
   } else {
-    return(invisible(NULL))
+    return(is_done)
   }
-  
 }
 
 

@@ -21,10 +21,10 @@
 #'
 #' @examples
 #' \dontrun{
-#' mp_dup_check(dataset_a, dataset_b)
+#' outqc_dup_check(dataset_a, dataset_b)
 #' }
 #' 
-mp_dup_check <- function(data_a,
+outqc_dup_check <- function(data_a,
                          data_b = NULL,
                          gh_precision = 6) {
   

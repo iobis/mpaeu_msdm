@@ -7,7 +7,7 @@
 sdm_options(sdm_method = NULL)
 }
 \arguments{
-\item{sdm_method}{\code{NULL}, for returning full list, or an algorithm name}
+\item{sdm_method}{\code{NULL} for returning full list, or an algorithm name}
 }
 \value{
 list of options for the chosen algorithm or all

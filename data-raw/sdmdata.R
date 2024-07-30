@@ -6,7 +6,7 @@ species_data <- sp_data[sample(1:nrow(sp_data), 1000),]
 
 env_data <- sdmpredictors::load_layers(c("BO22_tempmean_ss", "BO22_salinitymean_ss"))
 env_data <- terra::rast(env_data)
-# env_data <- terra::as.data.frame(env_data, xy = T, na.rm = F)
+env_data <- terra::as.data.frame(env_data, xy = T, na.rm = F)
 
 usethis::use_data(species_data, env_data, overwrite = TRUE)
 

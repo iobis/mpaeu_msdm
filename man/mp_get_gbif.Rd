@@ -54,8 +54,20 @@ Files saved and, if not all species matched the taxonomic backbone, a
 \description{
 Retrieve occurrence records from GBIF and save in the standard format
 }
+\details{
+If the download request is very big there is a chance that the function will
+fail to process the request. In that case, it will return a download predicate
+(see \link[rgbif:occ_download]{rgbif::occ_download}). You can then check the status with \code{rgbif::occ_download_meta(gbif_download)$status}
+and download with \code{rgbif::occ_download_get(gbif_download, path = "data/raw")}
+
+An alternative method is provided by \code{\link[=occurrence_gbif_db]{occurrence_gbif_db()}}, but then is on
+user side to organize the data.
+}
 \examples{
 \dontrun{
 mp_get_gbif("Leptuca thayeri", mode = "single")
 }
+}
+\seealso{
+\code{\link[=occurrence_gbif_db(), occurrence_gbif]{occurrence_gbif_db(), occurrence_gbif()}}
 }

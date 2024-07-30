@@ -142,13 +142,16 @@ mp_get_ecoinfo <- function(species_list,
   species_info <- species_info[,c("AphiaID", "scientificname", "genus", "family", "order", "class")]
   
   if ("sealife" %in% databases) {
-    sealife <- .info_from_sealife(species_info$scientificname)
+    sealife <- .info_from_sealife(species_info$scientificname,
+                                  search_remarks = search_remarks)
   }
   if (sealife != "NOT_FOUND") {
     result <- sealife
   } else {
     if ("fishbase" %in% databases) {
-      fishbase <- .info_from_sealife(species_info$scientificname, server = "fishbase")
+      fishbase <- .info_from_sealife(species_info$scientificname, 
+                                     server = "fishbase",
+                                     search_remarks = search_remarks)
     }
     if (fishbase != "NOT_FOUND") {
       result <- fishbase
@@ -173,7 +176,8 @@ mp_get_ecoinfo <- function(species_list,
 }
 
 #' @export
-.info_from_sealife <- function(species_name, server = "sealife") {
+.info_from_sealife <- function(species_name, server = "sealife", 
+                               search_remarks = TRUE) {
   
   info <- suppressMessages(rfishbase::ecology(species_name, server = server)[1,])
   colnames(info) <- tolower(colnames(info))
@@ -219,9 +223,9 @@ mp_get_ecoinfo <- function(species_list,
       colnames(sp_info) <- tolower(colnames(sp_info))
       
       if ("demerspelag" %in% colnames(sp_info)) {
-        is_benthic <- ifelse(sp_info$demerspelag == "benthic", TRUE, FALSE)
-        is_demersal <- ifelse(sp_info$demerspelag == "demersal", TRUE, FALSE)
-        is_pelagic <- ifelse(sp_info$demerspelag == "pelagic", TRUE, FALSE)
+        is_benthic <- ifelse(grepl("benthic", sp_info$demerspelag), TRUE, FALSE)
+        is_demersal <- ifelse(grepl("demersal", sp_info$demerspelag), TRUE, FALSE)
+        is_pelagic <- ifelse(grepl("pelagic", sp_info$demerspelag) , TRUE, FALSE)
         
         mode_life <- ifelse(isTRUE(is_benthic), "benthic",
                             ifelse(isTRUE(is_demersal), "demersal",
@@ -229,16 +233,18 @@ mp_get_ecoinfo <- function(species_list,
       }
       
       if (mode_life == "NOT_FOUND") {
-        if ("comments" %in% colnames(sp_info)) {
-          com_info <- tolower(sp_info$comments)
-          
-          is_benthic <- ifelse(grepl("benthic", com_info), TRUE, FALSE)
-          is_demersal <- ifelse(grepl("demersal", com_info), TRUE, FALSE)
-          is_pelagic <- ifelse(grepl("pelagic", com_info), TRUE, FALSE)
-          
-          mode_life <- ifelse(isTRUE(is_benthic), "benthic",
-                              ifelse(isTRUE(is_demersal), "demersal",
-                                     ifelse(isTRUE(is_pelagic), "pelagic", "NOT_FOUND")))
+        if (search_remarks) {
+          if ("comments" %in% colnames(sp_info)) {
+            com_info <- tolower(sp_info$comments)
+            
+            is_benthic <- ifelse(grepl("benthic", com_info), TRUE, FALSE)
+            is_demersal <- ifelse(grepl("demersal", com_info), TRUE, FALSE)
+            is_pelagic <- ifelse(grepl("pelagic", com_info), TRUE, FALSE)
+            
+            mode_life <- ifelse(isTRUE(is_benthic), "benthic",
+                                ifelse(isTRUE(is_demersal), "demersal",
+                                       ifelse(isTRUE(is_pelagic), "pelagic", "NOT_FOUND")))
+          }
         }
       }
     }

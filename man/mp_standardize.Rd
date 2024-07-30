@@ -9,11 +9,22 @@ mp_standardize(
   species_list,
   sdm_base,
   species_folder = "data/raw",
+  reader = "polars",
   species_outfolder = "data/species",
   geo_out = TRUE,
+  geo_method = "isoforest",
+  geo_dists_folder = "data/distances",
   env_out = TRUE,
+  env_variable = "bathymetry",
+  env_method = "mad",
+  out_threshold = 0.01,
   remove_land = TRUE,
+  approximate_land = TRUE,
+  approximate_limit = 1,
   narm_out = TRUE,
+  eval_max_impact = 10,
+  min_year = 1950,
+  exclude_record_type = NULL,
   add_fao = TRUE,
   fao_areas = "data/fao_areas.parquet",
   verbose = TRUE
@@ -22,32 +33,87 @@ mp_standardize(
 \arguments{
 \item{species}{the AphiaID for the species}
 
+\item{species_list}{the list of species, with species taxonID/AphiaID and
+GBIF keys.}
+
 \item{sdm_base}{a base \code{SpatRaster} in the target resolution. You can
 supply one of the environmental layers that you will use (same extent and
-resolution planned for the SDM)}
+resolution planned for the SDM). Supplying this is highly recommended}
 
 \item{species_folder}{the folder where the species data is located (i.e. the
 OBIS and GBIF full exports)}
 
+\item{reader}{which package to use for reading the parquet databases. One of
+"polars" or "arrow". If you followed the project steps, then "polars" is
+recommended because is faster. But if you are facing any problems, just
+change for "arrow"}
+
 \item{species_outfolder}{folder to output the files}
 
-\item{geo_out}{if \code{TRUE} assess geographical outliers. Note that at least 5 records are necessary
-for any outlier removal procedure (either geographical or environmental)}
+\item{geo_out}{if \code{TRUE} assess geographical outliers. See
+\code{\link[=outqc_geo]{outqc_geo()}}. Note that at least 5 records are necessary for any outlier
+removal procedure (either geographical or environmental)}
 
-\item{env_out}{if \code{TRUE} assess environmental outliers}
+\item{geo_method}{which method to use for geographical outliers. One of
+"iqr", "mad", "isoforest" or "ensemble"}
+
+\item{geo_dists_folder}{the folder with the distances for geographical
+outliers. See note on \code{\link[=outqc_geo]{outqc_geo()}}}
+
+\item{env_out}{if \code{TRUE} assess environmental outliers. See
+\code{\link[=outqc_env]{outqc_env()}}}
+
+\item{env_variable}{which variable to use for environmental outliers. One of
+"bathymetry", "temperature", "salinity" or "shoredistance"}
+
+\item{env_method}{which method to use for environmental outliers. One of
+"iqr", "mad", "isoforest" or "ensemble". Note that for both isoforest and
+ensemble, \code{env_variable} is ignored and all are used.}
+
+\item{out_threshold}{the limit of points that can be removed (i.e.
+percentage). Should be a value between 0 and 1. The default is 0.01, which
+limits the maximum number of points that can be removed to 1\% (as we assume
+outliers are extremes).}
 
 \item{remove_land}{if \code{TRUE} remove points from land. If \code{sdm_base}
 is supplied, will use it as reference. Otherwise, will use the
 \code{\link[obistools:check_onland]{obistools::check_onland()}} function}
 
-\item{narm_out}{if \code{TRUE}, then the function
-will not only remove the outliers, but also any NA value that there is (cells
-for which no distance or environmental information was found)}
+\item{approximate_land}{if \code{TRUE} and \code{sdm_base} is supplied, the
+function will attempt to approximate points on land to the nearest valid
+cell, based on approximate limit. This function uses adjacent cells, so it
+is not exactly distance based (as distances may vary according to latitude)}
 
-\item{add_fao}{if \code{TRUE}, add information from FishBase and SeaLifeBase of where
-the species is native, endemic or introduced, using FAO areas}
+\item{approximate_limit}{either 1 or 2, the number of adjacent cells to any
+direction to try when moving the point on land. 1 uses 'queen' movement,
+and 2 uses a 5x5 matrix (2 cells for each side/diagonal). See
+\code{\link[terra:adjacent]{terra::adjacent()}} for more information}
 
-\item{fao_areas}{path to parquet file with FAO areas information (see \code{\link[rfishbase:fb_tbl]{rfishbase::fb_tbl()}})}
+\item{narm_out}{if \code{TRUE}, then the function will not only remove the
+outliers, but also any NA value that there is (cells for which no distance
+or environmental information was found)}
+
+\item{eval_max_impact}{the function attempts to separate one dataset for
+evaluation. It will measure the spread of points (see details) and the
+impact of the dataset removal on the full dataset (in terms of percentage
+of points from the total). You can limit the maximum impact allowed when
+chosing a dataset}
+
+\item{min_year}{minimum year to filter the data}
+
+\item{exclude_record_type}{which types of observation ("basisofRecord) are
+not permited (i.e. should be excluded).
+Should be a character vector with valid values for both OBIS and GBIF (see
+\code{\link[rgbif:occ_download]{rgbif::occ_download()}} and \code{\link[robis:occurrence]{robis::occurrence()}}). If NULL, it will use
+the default values (see details). For ignoring this parameter, set as \code{NA}}
+
+\item{add_fao}{if \code{TRUE}, add information from FishBase and SeaLifeBase of
+where the species is native, endemic or introduced, using FAO areas}
+
+\item{fao_areas}{path to parquet file with FAO areas information (see
+\code{\link[rfishbase:fb_tbl]{rfishbase::fb_tbl()}})}
+
+\item{verbose}{if \code{TRUE}, print messages}
 }
 \value{
 saved files (see details)
@@ -57,88 +123,63 @@ Standardize occurrence data for SDMs
 }
 \details{
 This function aims to standardize (i.e. prepare) the occurrence data
-for use on the SDM. It does not have much flexibility in terms of arguments -
-and this is in purpose, as the aim is to produce one particular configuration
-for the SDMs. However, all the underlying functions are available for the user
-in the package, so you can assembly your own 'standardize' function.
+for use on the SDM. Note that all the underlying functions are available
+for the user in the package, so you can assembly your own 'standardize'
+function if you need something not supported by the parameters available.
+The default values are the ones used on the MPA Europe project.
 
-The function will perform the following steps:
-\enumerate{
-\item Open the most recent files from both OBIS and GBIF (those that are available)
-\item It will then verify if there are duplicated records, using GeoHash (resolution of 6)
-and the year of the record.
-\item If \code{remove_land} is \code{TRUE}, will remove points from land
-\item If outlier removal methods were set as \code{TRUE}, it will tag (not remove)
-the outliers (using limit of removal as 0.05\%, see \code{\link[=outqc_geo]{outqc_geo()}} or \code{\link[=outqc_env]{outqc_env()}} for more details).
-Then, this file is saved, following this pattern:
+The function will perform the following steps: 1. Open the most recent
+files from both OBIS and GBIF (those that are available) 2. It will then
+verify if there are duplicated records, using GeoHash (resolution of 6) and
+the year of the record. 3. If \code{remove_land} is \code{TRUE}, will
+remove points from land. If \code{approximate_land} is \code{TRUE}, it will
+try to bring points on land to the closest valid cell. This is limited by
+\code{approximate_limit}, so that points that are above this limit are
+discarded. 4. If outlier removal methods were set as \code{TRUE}, it will
+remove the outliers according to the methods/thresholds 5. The function
+will try to separate one dataset for evaluation. It does that by first
+converting points to 1 per cell, per dataset. Then, it measure the "spread"
+of the points on the geographical space by applying the follow:
+\code{
+x_cords <- apply(x_cords, 2, function(x) sum((x - mean(x))^2))
+sqrt(sum(x_cords)/nrow(x))
 }
+Being x_cords the coordinates. Thus, the spread of points is measured by
+calculating the root mean square deviation of their coordinates from their
+respective means. It will then order the datasets from those with higher to
+lower spread. It will select the first 50\% with highest spread. From those,
+it will select the one with lowest impact on the number of points ( with
+impact measured as the percentage from the total number which the dataset
+corresponds). To avoid removing a dataset with high impact on the total
+number of points, you can limit it through the argument
+\code{eval_max_impact}. If a dataset is available to be used as evaluation,
+those are marked as "eval_points", while those for fitting are marked as
+"fit_points".
 
-species_folder/key=\verb{SPECIES KEY}/date=\verb{CURRENT DATE IN YMD FORMAT}/ftype=dupclean/spdata0.parquet
-
-If you set prepare_sdm (there is no reason to not leave this as \code{TRUE}), then:
-\enumerate{
-\item The function will remove the outliers based on MAD (for environmental will
-consider only bathymetry). If \code{out_from_cell = TRUE}, this will be done
-based on a per-cell version of the dataset. This is recommended, because if you have
-a very dense region, in terms of points, this can influence the outlier removal procedure.
-Each dataset is converted to 1 per cell, then the equivalent cells in the aggregated
-distance layer are retrieved (for the whole set of data), duplicated points are removed and outliers are detected.
-Any duplicated point (falling on the same point then other dataset) receives the same outlier status than its
-duplicate.
-\item Then it will try to set one dataset to be used
-as independent evaluation data. First it will calculate the standard distance
-to assess how spread points are (spreadness in the rest of the doc)
-and then the number of points in each dataset
-(this considering the converted data to 1 per cell). After that it will
-filter and remove those datasets with less than 10 records. If more than 1 dataset is
-still available, it will order the datasets by their spreadness (high to low)
-and remove the 50\% with lowest spreadness. Then it will get the dataset with
-the lowest impact in the total number of records to be used as an evaluation
-dataset.
-\item It will convert both the evaluation and the fitting dataset to 1 per cell and save.
-}
-
-It will save one single file following this pattern:
-
-species_folder/key=\verb{SPECIES KEY}/date=\verb{CURRENT DATE IN YMD FORMAT}/ftype=stdpts/spdata0.parquet
-
-This file will have the following columns:
+The returned parquet file will contain:
 \itemize{
 \item decimalLongitude
 \item decimalLatitude
-\item data_type: one of "fit_points" and "eval_points". The last will only be available if the
-function was able to retrieve an evaluation dataset. To use the data for SDMs
-you should then filter it and get a dataset for fiting the model (fit_points) and
-to evaluate the final model (eval_points).
-\item dataset_sel: only for eval_points, the dataset that was used to retrieve the evaluation points
-\item taxonID: the AphiaID, for control
-\item species: scientificName, for control
-}
+\item data_type (either fit or evaluation)
+\item dataset_sel (datasetID of the dataset used for evaluation, if available)
+\item taxonID
+\item species (scientific name)
+and if \code{add_fao = TRUE}, a column named "fao_confirmed" that contains
+1 or 0, with 1 meaning that the point is within the FAO area considered as
+native on FishBase or SeaLifeBase
 
-Aggregate resolution used in the outlier removal process is 0.8 (see \code{\link[=outqc_geo]{outqc_geo()}})
+Basis of record default
+If nothing is supplied to \code{exclude_record_type}, then the function will
+filter to remove occurrence records from the following types:
+\itemize{
+\item "FOSSIL_SPECIMEN" or "FossilSpecimen"
+\item "LIVING_SPECIMEN" or "LivingSpecimen"
 }
-\section{Important note}{
-Even if the function succeed in setting one dataset apart for evaluation, note that the selected
-dataset may be important to model fitting! This is specially true if there was a small number of datasets.
-As explained, if after removing those datasets with less than 10 records there are at least 2 datasets,
-the function will proceed and select the 50\% with highest spreadness for the next step. Thus, in this case
-the one dataset with high spreadness will be chosen and the one with lower spreadness will be used to
-model fitting.
-
-We recommend that you do one additional step of checking before using the dataset. For example, in this work
-we checked, before the SDM:
-\enumerate{
-\item If the number of records in the evaluation dataset was higher than in the fitting one, and;
-\item The inclusion of the evaluation dataset increased our coverage (number of TOTAL per cell records and
-spreadness).
 }
-
-If this was the case, the evaluation dataset was incorporated in fitting (points were converted again
-to 1 per cell, as some points could overlap).
 }
-
 \examples{
 \dontrun{
-mp_standardize(21510)
+base_rast <- rast("data/env/current/thetao_baseline_depthsurf_mean.tif")
+mp_standardize(21510, "data/all_splist_20240319.csv", base_rast)
 }
 }

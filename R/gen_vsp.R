@@ -56,6 +56,8 @@
 #'   sampling of points. This is mainly intended for testing if the
 #'   environmental relationship functions are returning the expected suitability
 #'   pattern (in this case, plot = \code{TRUE}).
+#' @param beta parameter passed to the PA conversion (see [virtualspecies::convertToPA])
+#' @param alpha parameter passed to the PA conversion (see [virtualspecies::convertToPA])
 #'
 #' @details This function is a helper to generate virtual species for testing
 #' SDM methods. Files will be saved in the path
@@ -89,7 +91,7 @@ gen_vsp <- function(layers,
                     samp_bias_layer = NULL, samp_bias_only = FALSE, samp_constr_shape = NULL, samp_pa = TRUE, samp_replace = FALSE,
                     vsp_name = NULL, vsp_class = NULL,
                     pred_fut = NULL, save_path = NULL, save_key = NULL, plot = TRUE,
-                    test_mode = FALSE) {
+                    test_mode = FALSE, beta = 0.5, alpha = -0.05) {
   
   sm <- function(x){suppressMessages(x)}
   
@@ -154,7 +156,7 @@ Example: pred_fut <- list(ssp1 = ssp1_stack, ssp2 = ssp2_stack)")
   vsp_sp_pa <- sm(virtualspecies::convertToPA(vsp_sp,
                                               PA.method = "probability",
                                               prob.method = "logistic",
-                                              beta = 0.5, alpha = -0.05,
+                                              beta = beta, alpha = alpha,
                                               plot = plot))
   
   if (test_mode) {

@@ -538,8 +538,13 @@ outqc_query_distances <- function(pts,
     # Rename variable for easier handling
     dists <- dists$rename_vars('__xarray_dataarray_variable__' = 'distances')
     
-    # Retrieve existinc cells
+    # Retrieve existing cells
     exist_cells <- dists$time$values
+    # For compatibility with new Xarray versions/reticulate problems:
+    if (!inherits(exist_cells, c("array", "integer", "double", "numeric"))) {
+      exist_cells <- dists$time$values$tolist()
+    }
+    
     
     # Check if all are valid
     cell_list <- cells_index
@@ -582,6 +587,11 @@ outqc_query_distances <- function(pts,
       vals_sel <- vals$distances$sel(x = as.integer(cell_cols[z]-1),
                                      y = as.integer(cell_rows[z]-1))
       cell_values[[z]] <- vals_sel$values
+      
+      # For compatibility with new Xarray versions/reticulate problems:
+      if (!inherits(cell_values[[z]], c("array", "integer", "double", "numeric"))) {
+        cell_values[[z]] <- vals_sel$values$tolist()
+      }
       
       cell_values[[z]] <- cell_values[[z]][order(cell_values[[z]])][2:(kdist+1)]
       

@@ -178,9 +178,45 @@ cogeo_optim <- function(id, remove_files = TRUE, verbose = FALSE) {
 #' Generate log of modeling
 #'
 #' @param algos algorithms that will be used to fit
+#' 
+#' @details
+#' The following parameters are available in the list object:
+#' - taxonID
+#' - scientificName
+#' - group
+#' - model_date
+#' - model_acro
+#' - n_init_points = input number of initial points before autocorrelation
+#' - model_fit_points 
+#' - model_eval_points
+#' - algorithms
+#' - algorithms_parameters = list with parameters used for model fitting (auto filled)
+#' - model_result = result of model fitting
+#' - model_bestparams = the best fitting parameters
+#' - model_details = list with the following parameters:
+#'    - ecoregions
+#'    - ecoregions_included 
+#'    - limited_by_depth = TRUE or FALSE, if it was limited by depth
+#'    - depth_buffer
+#'    - block_size
+#'    - background_size
+#'    - control_bias
+#'    - hypothesis_tested
+#'    - best_hypothesis
+#'    - variables
+#' - model_good = which models performed well according to the metric and threshold
+#' - model_good_metric = metric used for defining "good" models
+#' - model_good_threshold = threshold used for defining "good" models
+#' - model_posteval = list with post-evaluation results
+#' - timings
+#' - obissdm_version = auto filled, version of the `obissdm` package
+#'
+#' Other parameters can be added as needed.
 #'
 #' @return a list
 #' @export
+#' 
+#' @seealso [save_log()]
 #'
 #' @examples
 #' sdm_log <- gen_log(c("maxent", "brt"))
@@ -195,6 +231,7 @@ gen_log <- function(algos){
     group = NULL,
     model_date = NULL,
     model_acro = NULL,
+    n_init_points = NULL,
     model_fit_points = NULL,
     model_eval_points = NULL,
     algorithms = algos,
@@ -219,6 +256,9 @@ gen_log <- function(algos){
       best_hypothesis = NULL,
       variables = NULL
     ),
+    model_good = NULL,
+    model_good_metric = NULL,
+    model_good_threshold = NULL,
     model_posteval = eval(parse(text = paste0(
       "list(", paste0(c(algos, "ensemble", "niche", "hyperniche"), "=", "NULL", collapse = ","), ")"
     ))),

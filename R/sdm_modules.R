@@ -65,7 +65,7 @@ sdm_fit <- function(sdm_data,
 
 #' Retrieve options used for model tuning
 #'
-#' @param sdm_method `NULL`, for returning full list, or an algorithm name
+#' @param sdm_method `NULL` for returning full list, or an algorithm name
 #'
 #' @return list of options for the chosen algorithm or all
 #' @export
@@ -103,13 +103,11 @@ sdm_options <- function(sdm_method = NULL) {
     ),
     # BRT
     brt = list(
-      #method = "naive",
+      method = "naive",
       n_trees = 100,
       t_depth = 1,
       lr = 0.01,
       bag_fraction = 0.75,
-      step_size = 100,
-      max_trees = 10000,
       weight_resp = FALSE
     ),
     # RF
@@ -372,7 +370,7 @@ sdm_module_maxent <- function(sdm_data, options = NULL, verbose = TRUE,
   
   # Prepare returning object
   result <- list(
-    name = "maxnet",
+    name = "maxent",
     model = full_fit,
     variables = colnames(dat),
     n_pts = c(presence = sum(p),
@@ -490,15 +488,6 @@ sdm_module_lasso <- function(sdm_data, options = NULL, verbose = TRUE,
   # Separate data
   p <- sdm_data$training$presence
   dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
-  
-  # Prepare settings
-  if (length(alpha_param) > 1) {
-    model_type <- "elasticnet"
-  } else if (alpha_param == 1) {
-    model_type <- "lasso"
-  } else {
-    model_type <- "ridge"
-  }
   
   if (method == "iwlr" | method == "dwpr") {
     weight_resp <- TRUE
@@ -623,6 +612,15 @@ sdm_module_lasso <- function(sdm_data, options = NULL, verbose = TRUE,
   
   timings <- .get_time(timings, "evaluate final")
   
+  # Get model type to save
+  if (final_alpha_param > 0 & final_alpha_param < 1) {
+    model_type <- "elasticnet"
+  } else if (final_alpha_param == 1) {
+    model_type <- "lasso"
+  } else {
+    model_type <- "ridge"
+  }
+  
   result <- list(
     name = model_type,
     model = lasso_cv,
@@ -700,13 +698,11 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
     options <- sdm_options("brt")
   }
   
-  #method <- options[["method"]]
+  method <- options[["method"]]
   n_trees <- options[["n_trees"]]
   t_depth <- options[["t_depth"]]
   lr <- options[["lr"]]
   bag_fraction <- options[["bag_fraction"]]
-  step_size <- options[["step_size"]]
-  max_trees <- options[["max_trees"]]
   weight_resp <- options[["weight_resp"]]
   
   # Separate data
@@ -714,22 +710,35 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   dat <- sdm_data$training
   
   # Settings
-  if (weight_resp) {
-    pres <- length(p[p == 1])
-    bkg <- length(p[p == 0])
-    wt <- ifelse(p == 1, 1, pres / bkg)
+  if (method == "iwlr" | method == "dwpr") {
+    weight_resp <- TRUE
+    to_norm <- TRUE
   } else {
-    wt <- rep(1, length(p))
+    to_norm <- FALSE
+  }
+  
+  if (weight_resp) {
+    if (method == "iwlr") {
+      wt <- (10^6)^(1 - p)
+    } else if (method == "dwpr") {
+      wt <- rep(1e-6, length(p))
+      wt[p == 0] <- total_area/sum(p == 0)
+      dat$presence <- p/wt
+    } else {
+      pres <- length(p[p == 1])
+      bkg <- length(p[p == 0])
+      wt <- ifelse(p == 1, 1, pres / bkg)
+    }
+  } else {
+    wt <- NULL
   }
   
   # Tune model
   # Create grid for tuning
   tune_grid <- expand.grid(
     lr = lr,
-    step_size = step_size,
     n_trees = n_trees,
     t_depth = t_depth,
-    max_trees = max_trees,
     bag_fraction = bag_fraction,
     stringsAsFactors = FALSE
   )
@@ -738,65 +747,59 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   
   tune_test <- rep(NA, nrow(tune_grid))
   cv_results <- list()
-  n_trees_cv <- rep(NA, nrow(tune_grid))
   
   
   for (k in 1:nrow(tune_grid)) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
-    
+
     b_index <- sdm_data$blocks$folds[[tune_blocks]]
     
-    tune_block <-  dismo::gbm.step(data = dat,
-                                   gbm.x = 2:ncol(dat),
-                                   gbm.y = 1,
-                                   fold.vector = b_index,
-                                   family = "bernoulli", 
-                                   tree.complexity = tune_grid$t_depth[k],
-                                   learning.rate = tune_grid$lr[k],
-                                   step.size = tune_grid$step_size[k],
-                                   bag.fraction = tune_grid$bag_fraction[k],
-                                   max.trees = tune_grid$max_trees[k],
-                                   n.trees = tune_grid$n_trees[k],
-                                   n.folds = length(unique(b_index)),
-                                   site.weights = wt,
-                                   plot.main = F,
-                                   verbose = F,
-                                   silent = T)
+    tune_block <- try(.brt_cv(p, dat, b_index,
+                              n_trees = tune_grid$n_trees[k],
+                              t_depth = tune_grid$t_depth[k], 
+                              lr = tune_grid$lr[k],
+                              bag_fraction = tune_grid$bag_fraction[k],
+                              wt = wt, to_norm = to_norm, method = method),
+                      silent = T)
     
-    n_trees_cv[k] <- tune_block$n.trees
+    if (inherits(tune_block, "try-error")) tune_block <- NULL
     
-    cv_results_b <- lapply(unique(b_index), function(fid){
-      eval_metrics(p[b_index == fid], tune_block$fitted[b_index == fid])
-    })
+    cv_results[[k]] <- as.data.frame(tune_block)
     
-    cv_results[[k]] <- as.data.frame(do.call("rbind", cv_results_b))
-    
-    tune_block <- apply(cv_results[[k]], 2, mean, na.rm = T)
-    
-    tune_test[k] <- tune_block[metric]
+    if (!is.null(tune_block)) {
+      tune_block <- apply(tune_block, 2, mean, na.rm = T)
+      
+      tune_test[k] <- tune_block[metric]
+    } else {
+      tune_test[k] <- NA
+    }
   }
   
   # Get best tune
-  best_tune <- tune_grid[which.max(tune_test)[1],]
-  best_tune$n_trees_bm <- n_trees_cv[which.max(tune_test)[1]]
+  bfit <- which.max(tune_test)[1]
+  best_tune <- tune_grid[bfit,]
   
   timings <- .get_time(timings, "tuning")
   
   # Fit full model
   .cat_sdm(verbose, "Training and evaluating final model")
   
-  full_fit <- dismo::gbm.fixed(data = dat,
-                               gbm.x = 2:ncol(dat),
-                               gbm.y = 1,
-                               family = "bernoulli", 
-                               tree.complexity = best_tune$t_depth,
-                               learning.rate = best_tune$lr,
-                               bag.fraction = best_tune$bag_fraction,
-                               n.trees = best_tune$n_trees_bm,
-                               site.weights = wt)
+  full_fit <- gbm::gbm(presence ~ ., 
+                       distribution = "poisson",
+                       data = dat,
+                       weights = wt,
+                       n.trees = best_tune$n_trees,
+                       interaction.depth = best_tune$t_depth,
+                       shrinkage = best_tune$lr, 
+                       bag.fraction = best_tune$bag_fraction,
+                       cv.folds = 0,
+                       n.minobsinnode = 5, 
+                       verbose = FALSE)
   
   pred_full <- predict(full_fit, dat, type = "response")
+  
+  if (to_norm) pred_full <- .normalize_res(pred_full)
   
   metrics_full <- eval_metrics(p, pred_full)
   
@@ -812,16 +815,14 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
     timings = timings,
     cv_method = tune_blocks,
     parameters = list(
+      method = method,
       n_trees = best_tune$n_trees,
       t_depth = best_tune$t_depth,
       lr = best_tune$lr,
       bag_fraction = best_tune$bag_fraction,
-      step_size = best_tune$step_size,
-      max_trees = best_tune$max_trees,
-      weight_resp = weight_resp,
-      n_trees_best = best_tune$n_trees_bm
+      weight_resp = weight_resp
     ),
-    cv_metrics = cv_results[[which.max(tune_test)[1]]],
+    cv_metrics = cv_results[[bfit]],
     full_metrics = metrics_full,
     eval_metrics = NULL
   )
@@ -837,6 +838,8 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
     # Predict
     pred_eval <- predict(full_fit, dat_eval, type = "response")
     
+    if (to_norm) pred_eval <- .normalize_res(pred_eval)
+    
     metrics_eval <- eval_metrics(p_eval, pred_eval)
     
     result$eval_metrics <- metrics_eval
@@ -850,6 +853,58 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   class(result) <- c("sdm_result", class(result))
   
   return(result)
+  
+}
+
+#' @export
+.brt_cv <- function(p, dat, blocks, n_trees, t_depth, lr, bag_fraction,
+                    wt, method, to_norm){
+  
+  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+    
+    test_p <- p[blocks == id]
+    test_dat <- dat[blocks == id,]
+    
+    train_p <- p[blocks != id]
+    train_dat <- dat[blocks != id,]
+    
+    nwt <- wt[blocks != id]
+    
+    if (method == "dwpr") {
+      mfit <- gbm::gbm(presence ~ ., 
+                  distribution = "poisson",
+                  data = train_dat,
+                  weights = nwt,
+                  n.trees = n_trees,
+                  interaction.depth = t_depth,
+                  shrinkage = lr, 
+                  bag.fraction = bag_fraction,
+                  cv.folds = 0,
+                  n.minobsinnode = 5, 
+                  verbose = FALSE)
+    } else {
+      mfit <- gbm::gbm(presence ~ ., 
+                  distribution = "bernoulli",
+                  data = train_dat,
+                  weights = nwt,
+                  n.trees = n_trees,
+                  interaction.depth = t_depth,
+                  shrinkage = lr, 
+                  bag.fraction = bag_fraction,
+                  cv.folds = 0,
+                  n.minobsinnode = 5, 
+                  verbose = FALSE)
+    }
+    
+    pred <- predict(mfit, test_dat, type = "response")
+    
+    if (to_norm) pred <- .normalize_res(pred)
+
+    eval_metrics(test_p, pred)
+    
+  })
+  
+  return(do.call("rbind", blocks_results))
   
 }
 
@@ -1131,7 +1186,7 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
   
   b_index <- sdm_data$blocks$folds[[tune_blocks]]
   
-  cv_results <- .glm_cv(p, dat, b_index, forms, wt = wt, method)
+  cv_results <- .glm_cv(p, dat, b_index, forms, wt = wt, method, to_norm)
   
   timings <- .get_time(timings, "tuning")
   
@@ -1145,6 +1200,8 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
   }
   
   pred_full <- predict(full_fit, dat, type = "response")
+  
+  if (to_norm) pred_full <- .normalize_res(pred_full)
   
   metrics_full <- eval_metrics(p, pred_full)
   
@@ -1179,6 +1236,8 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
     # Predict
     pred_eval <- predict(full_fit, dat_eval, type = "response")
     
+    if (to_norm) pred_eval <- .normalize_res(pred_eval)
+    
     metrics_eval <- eval_metrics(p_eval, pred_eval)
     
     result$eval_metrics <- metrics_eval
@@ -1196,7 +1255,7 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 #' @export
-.glm_cv <- function(p, dat, blocks, forms, wt, method){
+.glm_cv <- function(p, dat, blocks, forms, wt, method, to_norm){
   
   blocks_results <- lapply(1:length(unique(blocks)), function(id){
     
@@ -1219,6 +1278,8 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
     }
     
     pred <- predict(mfit, test_dat, type = "response")
+    
+    if (to_norm) pred <- .normalize_res(pred)
     
     eval_metrics(test_p, pred)
     
@@ -1319,7 +1380,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     
     tune_forms <- as.formula(
       paste("presence ~", paste(
-        "s(", var_names, ", k=", tune_grid$k_val[k], ")",
+        "s(", var_names, ", k=", tune_grid$k_val[k], ", bs='cr')",
         collapse = "+"
       ))
     )
@@ -1328,7 +1389,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     
     tune_block <- .gam_cv(p, dat, b_index,
                           forms = tune_forms,
-                          wt = wt, family = fam)
+                          wt = wt, family = fam,
+                          to_norm = to_norm)
     
     cv_results[[k]] <- as.data.frame(tune_block)
     
@@ -1347,17 +1409,19 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   
   forms <- as.formula(
     paste("presence ~", paste(
-      "s(", var_names, ", k=", best_tune, ")",
+      "s(", var_names, ", k=", best_tune, ", bs='cr')",
       collapse = "+"
     ))
   )
   
-  full_fit <- mgcv::gam(forms, family = fam,
+  full_fit <- mgcv::bam(forms, family = fam,
                         data = dat,
                         weights = wt,
-                        method = "REML")
+                        method = "fREML")
   
   pred_full <- predict(full_fit, dat, type = "response")
+  
+  if (to_norm) pred_full <- .normalize_res(pred_full)
   
   metrics_full <- eval_metrics(p, pred_full)
   
@@ -1392,6 +1456,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     # Predict
     pred_eval <- predict(full_fit, dat_eval, type = "response")
     
+    if (to_norm) pred_eval <- .normalize_res(pred_eval)
+    
     metrics_eval <- eval_metrics(p_eval, pred_eval)
     
     result$eval_metrics <- metrics_eval
@@ -1409,7 +1475,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 #' @export
-.gam_cv <- function(p, dat, blocks, forms, wt, family){
+.gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm){
   
   blocks_results <- lapply(1:length(unique(blocks)), function(id){
     
@@ -1427,9 +1493,11 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     
     mfit <- mgcv::bam(forms, family = family, data = train_dat,
                       weights = nwt,
-                      method = "REML")
+                      method = "fREML")
     
     pred <- predict(mfit, test_dat, type = "response")
+    
+    if (to_norm) pred <- .normalize_res(pred)
     
     eval_metrics(test_p, pred)
     

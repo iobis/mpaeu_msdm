@@ -15,6 +15,7 @@ get_env_data(
   outdir = "data/env/",
   skip_exist = TRUE,
   keep_raw = FALSE,
+  average_time = FALSE,
   verbose = TRUE
 )
 }
@@ -46,6 +47,9 @@ files}
 \item{keep_raw}{wether or not should the folder with raw files be kept
 (recommended is FALSE to save space)}
 
+\item{average_time}{if \code{TRUE} and multiple time steps are available, then
+those are averaged and only the average (single layer) is saved}
+
 \item{verbose}{print messages to track download}
 }
 \value{
@@ -59,7 +63,7 @@ Environmental layers are downloaded from the Bio-ORACLE ERDDAP server
 To see all available options, visit:
 https://erddap.bio-oracle.org/erddap/griddap/index.html?page=1&itemsPerPage=1000
 
-This function is basically a wrapper around the download_layers function of the
+This function is basically a wrapper around the \link[biooracler:download_layers]{biooracler::download_layers} function of the
 biooracler package which is still not on CRAN (soon will be), but will save
 all files according to the project standard.
 If you run the function and does not have biooracler installed, the function will print an
@@ -80,6 +84,9 @@ Time steps should be a named list, for each period a vector containing start and
 Datasets names should be the same one got from the ERDDAP list (see link above).
 If a variable is not available for a period/depth but is for others, just supply it and the function will trow an error for those that it's unable to download but keep with the others.
 See examples for details on how to set up the function.
+
+In case you download multiple time steps, it is possible to average the time steps
+by setting \code{average_time = TRUE}
 
 Note: in the special cases that a dataset have "mean" in its name (e.g. PAR_mean), it will be renamed
 and the _mean suppressed to avoid problems with other functions.
