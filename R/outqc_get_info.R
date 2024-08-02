@@ -77,7 +77,7 @@ outqc_get_distances <- function(base,
   if (is.null(target)) {
     if (!is.null(agg_res)) {
       if (verbose) cat("Aggregating by the resolution of", agg_res, "\n")
-      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]))
+      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]), na.rm = T)
       #Get all cells that are not NA
       tg_cells <- terra::as.data.frame(new_base, cells = T, xy = T)
     } else {
@@ -178,14 +178,31 @@ outqc_get_distances <- function(base,
                                        
     
     # The distance will be computed to this cell
-    target_rast[target_cells[index,1]] <- 0
+    tcell <- cellFromXY(target_rast, target_cells[index,2:3])
+    val <- target_rast[tcell][1,]
+    if (is.na(val)) {
+      p <- terra::vect(target_cells[index,2:3], geom = colnames(target_cells)[2:3], crs = "EPSG:4326")
+      p_b <- terra::buffer(p, 20000)
+      p_e <- terra::extract(target_rast, p_b, xy = T, ID = F)
+      p_e <- p_e[!is.na(p_e[,1]),]
+      if (nrow(p_e) > 0) {
+        p_e <- terra::vect(p_e, geom = colnames(p_e)[2:3], crs = "EPSG:4326")
+        near <- nearest(p, p_e)
+        near <- terra::as.data.frame(near, geom = "XY")
+        tcell <- cellFromXY(target_rast, near[1,c("x", "y")])
+      } else {
+        return(invisible(NULL))
+      }
+    }
+    target_rast[tcell] <- 0
+    #target_rast[target_cells[index,1]] <- 0
     
     # Compute distance and save in the outfolder
     dist_grid <- terra::gridDist(target_rast, scale = 1000)
     
     if (!is.null(ag_fact)) {
-      dist_grid <- terra::aggregate(dist_grid, fact = ag_fact, fun = min, na.rm = T)
-
+      dist_grid <- terra::aggregate(dist_grid, fact = ag_fact, fun = median, na.rm = T)
+      
       new_cell <- terra::cellFromXY(dist_grid, target_cells[index,2:3])
       new_cell <- format(new_cell, trim = T, scientific = FALSE)
     } else {
