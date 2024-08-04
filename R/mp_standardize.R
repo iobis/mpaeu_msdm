@@ -201,7 +201,7 @@ mp_standardize <- function(species,
   
   if (reader == "polars") {
     require("polars")
-  } else {
+  } else if (reader == "arrow") {
     require("arrow")
   }
   
@@ -251,8 +251,12 @@ mp_standardize <- function(species,
       mutate(day = as.numeric(day),
              month = as.numeric(month),
              year = as.numeric(year)) %>%
-      filter(year >= min_year) %>%
-      filter(!basisOfRecord %in% basisrec)
+      filter(year >= min_year)
+    
+    if (basisrec[1] != "excludenothing") {
+      obis_data <- obis_data %>%
+        filter(!basisOfRecord %in% basisrec)
+    }
     
     if (nrow(obis_data) > 0) {
       if (any(obis_data$absence)) {
@@ -261,10 +265,13 @@ mp_standardize <- function(species,
       } else {
         obis_data_absence <- NULL
       }
+    } else {
+      obis_data_absence <- NULL
     }
     
   } else {
     obis_data <- NULL
+    obis_data_absence <- NULL
   }
   
   if (length(gbif_ds) > 0) {
@@ -292,8 +299,12 @@ mp_standardize <- function(species,
       mutate(taxonID = species_list$taxonID) %>%
       rename(decimalLatitude = decimallatitude,
              decimalLongitude = decimallongitude) %>%
-      filter(year >= min_year) %>%
-      filter(!basisofrecord %in% basisrec)
+      filter(year >= min_year) 
+    
+    if (basisrec[1] != "excludenothing") {
+      gbif_data <- gbif_data %>%
+        filter(!basisofrecord %in% basisrec)
+    }
     
     if (nrow(gbif_data) > 0) {
       if (any(gbif_data$occurrencestatus == "ABSENT")) {
@@ -302,10 +313,13 @@ mp_standardize <- function(species,
       } else {
         gbif_data_absence <- NULL
       }
+    } else {
+      gbif_data_absence <- NULL
     }
     
   } else {
     gbif_data <- NULL
+    gbif_data_absence <- NULL
   }
   
   # Remove duplicates based on year and geohash
@@ -596,7 +610,11 @@ mp_standardize <- function(species,
       
       # Try to add tag reference to area of occurrence
       if (add_fao) {
-        fao_areas <- pl$scan_parquet(fao_areas)
+        if (reader == "polars") {
+          fao_areas <- pl$scan_parquet(fao_areas)
+        } else if (reader == "arrow") {
+          fao_areas <- arrow::open_dataset(fao_areas)
+        }
         
         sp_sbase <- try(rfishbase::species(list(all_pts$species[1])))
         
@@ -608,15 +626,21 @@ mp_standardize <- function(species,
         }
         
         if (!inherits(sp_sbase, "try-error") & nrow(sp_sbase) > 0) {
-          fao_areas_sp <- fao_areas$filter(pl$col("SpecCode") == sp_sbase$SpecCode[1])$
-            collect()
-          fao_areas_sp <- fao_areas_sp$to_data_frame()
+          if (reader == "polars") {
+            fao_areas_sp <- fao_areas$filter(pl$col("SpecCode") == sp_sbase$SpecCode[1])$
+              collect()
+            fao_areas_sp <- fao_areas_sp$to_data_frame()
+          } else if (reader == "arrow") {
+            fao_areas_sp <- fao_areas %>%
+              filter(SpecCode == sp_sbase$SpecCode[1]) %>%
+              collect()
+          }
           
           fao_areas_sp <- fao_areas_sp %>%
             filter(Status %in% c("endemic", "Endemic", "native", "Native", "introduced", "Introduced"))
           
           if (nrow(fao_areas_sp) > 0) {
-            fao_shp <- vect("data/shapefiles/World_Fao_Zones.shp")
+            fao_shp <- terra::vect("data/shapefiles/World_Fao_Zones.shp")
             
             fao_shp_sel <- fao_shp[fao_shp$zone %in% fao_areas_sp$AreaCode]
             
@@ -628,7 +652,7 @@ mp_standardize <- function(species,
                 )
               )
               
-              is_onarea <- is.related(vect(all_pts[,1:2], geom = c("decimalLongitude", "decimalLatitude")),
+              is_onarea <- terra::is.related(vect(all_pts[,1:2], geom = c("decimalLongitude", "decimalLatitude")),
                                       vect(fao_shp_sel),
                                       "intersects")
               is_onarea <- ifelse(is_onarea, 1, 0)

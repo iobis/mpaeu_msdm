@@ -178,7 +178,7 @@ outqc_get_distances <- function(base,
                                        
     
     # The distance will be computed to this cell
-    tcell <- cellFromXY(target_rast, target_cells[index,2:3])
+    tcell <- terra::cellFromXY(target_rast, target_cells[index,2:3])
     val <- target_rast[tcell][1,]
     if (is.na(val)) {
       p <- terra::vect(target_cells[index,2:3], geom = colnames(target_cells)[2:3], crs = "EPSG:4326")
@@ -187,9 +187,9 @@ outqc_get_distances <- function(base,
       p_e <- p_e[!is.na(p_e[,1]),]
       if (nrow(p_e) > 0) {
         p_e <- terra::vect(p_e, geom = colnames(p_e)[2:3], crs = "EPSG:4326")
-        near <- nearest(p, p_e)
+        near <- terra::nearest(p, p_e)
         near <- terra::as.data.frame(near, geom = "XY")
-        tcell <- cellFromXY(target_rast, near[1,c("x", "y")])
+        tcell <- terra::cellFromXY(target_rast, near[1,c("x", "y")])
       } else {
         return(invisible(NULL))
       }
@@ -299,7 +299,7 @@ outqc_get_base <- function(resolution = 1,
   base <- terra::rast(resolution = resolution)
   base[] <- 1
   names(base) <- "dist"
-  crs(base) <- crs(maskpol)
+  terra::crs(base) <- terra::crs(maskpol)
   
   # Mask
   base <- terra::mask(base, maskpol, inverse = T)
@@ -422,7 +422,7 @@ geotiff_to_zarr(input_folder, output_path)
 #' then you should also set it as \code{TRUE} here. Otherwise, the function will not be
 #' able to find the valid cells that were computed.
 #' @param distfolder the folder holding the distance layers produced with [outqc_get_distances()]
-#' @param mode one of \code{zarr} or \code{tif}. Default is \code{zarr} which assumes that
+#' @param mode one of \code{zarr}, \code{xarray} or \code{tif}. Default is \code{zarr} which assumes that
 #' after running [outqc_get_distances()], the function [outqc_dist_tozarr()] was used.
 #' @param returnid if \code{TRUE} returns the ID
 #' 
@@ -434,8 +434,12 @@ geotiff_to_zarr(input_folder, output_path)
 #' then it's possible that some non-valid (empty) cells were omited. In that case
 #' the function will return NA for those records.
 #' 
-#' Note: for \code{mode = "zarr"}, which is the current default, you need to have Python installed,
-#' the [reticulate] package installed and the `xarray` Python package.
+#' Note: for \code{mode = "zarr"}, which is the current default, you need to have 
+#' the `Rarr` package installed (through Bioconductor).
+#' 
+#' For mode \code{"xarray"}, you need Python and the [reticulate] package installed 
+#' and the `xarray` Python package. This mode is memory intensive and is not (always)
+#' returning the right results. It was kept only for development purposes.
 #'
 #' @return `matrix` with each row corresponding to a point, and each collumn the distance to the nearest K(k) neighbour.
 #' @export
@@ -544,7 +548,7 @@ outqc_query_distances <- function(pts,
   
   if (mode == "tif") {
     pts_kdist <- lapply(1:length(cells_index), extract_dist, cells_index = cells_index)
-  } else {
+  } else if (mode == "xarray") {
     
     # Import xarray
     xr <- import("xarray")
@@ -616,6 +620,115 @@ outqc_query_distances <- function(pts,
     
     # Join information with the original values
     all_values <- do.call("rbind", cell_values)
+    
+    all_values <- cbind(cell_new = cell_to_do, all_values)
+    
+    all_values <- dplyr::left_join(cell_equiv, as.data.frame(all_values), by = "cell_new")
+    names(all_values)[1] <- "cell"
+    
+    # Join with the initial points list
+    final_values <- dplyr::left_join(pts, all_values, by = "cell")
+    
+  } else if (mode == "zarr") {
+    
+    require(Rarr)
+    
+    zarr_address <- paste0(distfolder, "/distances.zarr")
+    zarr_details <- zarr_overview(zarr_address, as_data_frame = T)
+    
+    z_time <- zarr_details[grepl("time", zarr_details$path),]
+    z_data <- zarr_details[!grepl("time", zarr_details$path),]
+
+    # Retrieve existing cells
+    exist_cells <- read_zarr_array(z_time$path)
+    
+    # Check if all are valid
+    cell_list <- cells_index
+    
+    cell_list_inv <- cell_list[!cell_list %in% exist_cells]
+    
+    # Check for closest or remove
+    if (length(cell_list_inv) > 0 & try_closest) {
+      
+      to_valid <- terra::adjacent(base, cell_list_inv, directions = 8)
+      
+      to_valid <- unname(apply(to_valid, 1, function(x) {
+        x_val <- x %in% exist_cells
+        if (any(x_val)) {
+          x <- x[x_val]
+          x[1]
+        } else {
+          NA
+        }
+      }))
+      
+      cell_list[!cell_list %in% exist_cells] <- to_valid
+      
+    } else {
+      cell_list[!cell_list %in% exist_cells] <- NA
+    }
+    
+    cell_equiv <- data.frame(cell_orig = cells_index, cell_new = cell_list)
+    
+    cell_to_do <- na.omit(unique(cell_list))
+    
+    cell_cols <- terra::colFromCell(base, cell_to_do)
+    cell_rows <- terra::rowFromCell(base, cell_to_do)
+    
+    get_time <- function(cell) {
+      which(exist_cells == cell)
+    }
+    
+    time_as_cell <- unlist(lapply(cell_to_do, get_time))
+    
+    extract_fz_info <- function(rows, cols) {
+      min_r <- min(rows)
+      max_r <- max(rows)
+      r_seq <- min_r:max_r
+      
+      min_c <- min(cols)
+      max_c <- max(cols)
+      c_seq <- min_c:max_c
+      
+      rows_eq <- unlist(lapply(rows, function(x) which(r_seq == x)))
+      cols_eq <- unlist(lapply(cols, function(x) which(c_seq == x)))
+      
+      list(r_seq = r_seq, c_seq = c_seq,
+           req = rows_eq, ceq = cols_eq)
+    }
+    
+    fzinfo <- extract_fz_info(cell_rows,
+                              cell_cols)
+    
+    extract_from_zarr <- function(fz_info, t_index, kdist, data_zarr_path) {
+      
+      t_index_sp <- split(seq_along(t_index), ceiling(seq_along(t_index)/2000))
+      
+      zar_vf <- lapply(t_index_sp, function(ti){
+        index <- list(t_index[ti], fz_info$r_seq, fz_info$c_seq)
+        zar <- read_zarr_array(data_zarr_path, index = index)
+        
+        extract_values <- function(slice, rows, cols, kdist) {
+          sv <- slice[cbind(rows, cols)]
+          return(sv[order(sv)][2:(kdist+1)])
+        }
+        
+        zar_v <- apply(zar, 1, extract_values,
+                       rows = fz_info$req, cols = fz_info$ceq, kdist = kdist)
+        return(zar_v)
+      })
+      
+      zar_vf <- do.call("cbind", zar_vf)
+      
+      return(zar_vf)
+    }
+    
+    # Join information with the original values
+    all_values <- extract_from_zarr(fzinfo,
+                                    time_as_cell,
+                                    kdist,
+                                    z_data$path)
+    all_values <- t(all_values)
     
     all_values <- cbind(cell_new = cell_to_do, all_values)
     
