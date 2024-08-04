@@ -28,8 +28,18 @@
 #'   have a 0 parameter (either for training or testing presence/background),
 #'   the function will retry to assign folds, by randomly decreasing or
 #'   increasing the resolution of the original grid. The number of new trials is
-#'   5, but you can change this value by supplying an integer instead of
-#'   \code{TRUE} for this parameter.
+#'   5 by default, but you can change this value by supplying an integer instead of
+#'   \code{TRUE} for this parameter. You can also retry in case of a different value
+#'   (e.g. only 1 test point) by changing the \code{min_class} parameter
+#' @param min_block_size if \code{retry_if_zero = TRUE}, then define the minimum size
+#' the block can have
+#' @param max_block_size if \code{retry_if_zero = TRUE}, then define the maximum size
+#' the block can have
+#' @param min_class if \code{retry_if_zero = TRUE}, the function will test if any of the folds
+#' have a zero in any of the classes, but instead of 0 it's possible to set a different value,
+#' for example 1 to have folds with at least 2 points in each class. Note that if you change this value for
+#' something too large and your points are not well distributed, then the function will probably fail
+#' in assigning the groups
 #' @param verbose if \code{TRUE}, print messages
 #'
 #' @details
@@ -51,6 +61,8 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
                               nfolds = 5, auto_range = FALSE, range = NULL, 
                               lat_blocks = 50, manual_shp = NULL,
                               n_iterate = 50, retry_if_zero = FALSE,
+                              min_block_size = 0.2, max_block_size = 20,
+                              min_class = 0,
                               verbose = TRUE) {
   
   if (class(sdm_data)[1] != "sdm_dat") {
@@ -126,78 +138,130 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
     if ("spatial_grid" %in% block_types) {
       if (verbose) cli::cli_alert_info("Generating grid blocks.")
       manual_grid <- manual_shp$spatial_grid
-      
+
       blocks <- manual_block(sf_pts,
                              user_grid = manual_grid,
-                             k = nfolds)
+                             k = nfolds,
+                             iterations = n_iterate)
+      
       if (retry_if_zero) {
-        if (any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE)))) {
-          if (verbose) cli::cli_alert_warning("Empty classes in one or more folds. Retrying with different resolution...")
+        if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
+          if (verbose) cli::cli_alert_warning("Empty (or different than {.var min_class}) classes in one or more folds. Retrying with different resolution...")
           init <- 1
+          bottom_reached <- top_reached <- FALSE
+
           while(
-            any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE))) &
+            any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE))) &
             init <= nretry
           ) {
-            prev_res <- terra::res(manual_grid)[1]
-            cfact <- sample(c(-4, -3, -2, 2, 3, 4), 1)
+
+            if (top_reached) {
+              prev_res <- max_block_size
+            } else if (bottom_reached) {
+              prev_res <- min_block_size
+            } else {
+              prev_res <- terra::res(manual_grid)[1]
+            }
+
+            if (prev_res >= max_block_size | ncell(manual_grid) < nfolds) {
+              cfact <- -2
+              top_reached <- TRUE
+            } else if (prev_res <= min_block_size) {
+              cfact <- 2
+              bottom_reached <- TRUE
+            } else {
+              cfact <- sample(c(-2, 2), 1)
+            }
+
             if (cfact > 0) {
               manual_grid <- terra::aggregate(manual_grid, cfact)
             } else {
               manual_grid <- terra::disagg(manual_grid, (cfact * -1))
             }
+
             blocks <- manual_block(sf_pts,
                                    user_grid = manual_grid,
-                                   k = nfolds)
+                                   k = nfolds,
+                                   iterations = n_iterate)
             init <- init + 1
+
+            if (top_reached & bottom_reached) {
+              init <- nretry + 1
+            }
           }
         }
-        if (any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE)))) {
+        if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
           if (verbose) cli::cli_alert_danger("It was not possible to avoid empty classes in one or more folds.")
         }
       }
-      
+
       folds <- c(folds, spatial_grid = list(blocks$folds))
       gr <- c(gr, spatial_grid = terra::res(manual_grid)[1])
     }
-    
+
     if ("spatial_lat" %in% block_types) {
       if (verbose) cli::cli_alert_info("Generating latitudinal blocks.")
       manual_grid <- manual_shp$spatial_lat
-      
+
       blocks <- manual_block(sf_pts,
                              user_grid = manual_grid,
                              k = nfolds,
                              iterations = n_iterate)
       if (retry_if_zero) {
-        if (any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE)))) {
-          if (verbose) cli::cli_alert_warning("Empty classes in one or more folds. Retrying with different resolution...")
+        if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
+          if (verbose) cli::cli_alert_warning("Empty (or different than {.var min_class}) classes in one or more folds. Retrying with different resolution...")
           init <- 1
+          bottom_reached <- top_reached <- FALSE
+          
           while(
-            any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE))) &
+            any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE))) &
             init <= nretry
           ) {
-            prev_res <- terra::res(manual_grid)[2]
-            cfact <- sample(c(-4, -3, -2, 2, 3, 4), 1)
+            
+            if (top_reached) {
+              prev_res <- max_block_size
+            } else if (bottom_reached) {
+              prev_res <- min_block_size
+            } else {
+              prev_res <- terra::res(manual_grid)[1]
+            }
+            
+            if (prev_res >= max_block_size | ncell(manual_grid) < nfolds) {
+              cfact <- -2
+              top_reached <- TRUE
+            } else if (prev_res <= min_block_size) {
+              cfact <- 2
+              bottom_reached <- TRUE
+            } else {
+              cfact <- sample(c(-2, 2), 1)
+            }
+            
             if (cfact > 0) {
               manual_grid <- terra::aggregate(manual_grid, cfact)
             } else {
               manual_grid <- terra::disagg(manual_grid, (cfact * -1))
             }
+            
             blocks <- manual_block(sf_pts,
                                    user_grid = manual_grid,
-                                   k = nfolds)
+                                   k = nfolds,
+                                   iterations = n_iterate)
             init <- init + 1
+            
+            if (top_reached & bottom_reached) {
+              init <- nretry + 1
+            }
           }
         }
-        if (any(apply(blocks$records, 1, function(x) ifelse(x == 0, TRUE, FALSE)))) {
+        if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
           if (verbose) cli::cli_alert_danger("It was not possible to avoid empty classes in one or more folds.")
         }
       }
-      
+
       folds <- c(folds, spatial_lat = list(blocks$folds))
       gr <- c(gr, spatial_lat = terra::nrow(manual_grid))
     }
-    
+
     if ("random" %in% block_types) {
       if (verbose) cli::cli_alert_info("Generating random samples.")
       blocks <- sample(1:5, nrow(sf_pts), replace = T)
@@ -219,7 +283,7 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
 #' Fast spatial cross-validation blocks generation
 #' 
 #' This function will generate cross-validation blocks randomly based on a grid,
-#' which may also be of latitutdinal blocks. This function is simpler than the
+#' which may also be of latitudinal blocks. This function is simpler than the
 #' [blockCV::cv_spatial()], but is aimed to be much faster.
 #'
 #' @param data_pts points in SF format. Should have a collumn named "presence"
@@ -377,6 +441,121 @@ plot_folds <- function(sdm_data, block_type = NULL,
   print(p)
   return(invisible(NULL))
 }
+
+
+#' Get information on the number of points per fold
+#'
+#' @param sdm_data an sdm_dat object prepared using [mp_prepare_data()] and with 
+#' assigned blocks using [mp_prepare_blocks()]
+#' @param block_type the block type
+#'
+#' @return a data.frame containing number of points per class and per fold
+#' @export
+#'
+#' @examples 
+#' \dontrun{
+#' folds_info(sdm_data)
+#' }
+folds_info <- function(sdm_data, block_type = "spatial_grid") {
+  
+  k <- sdm_data$blocks$n
+  
+  n_points <- data.frame(train_pres = rep(NA, k), train_back = NA,
+                         test_pres = NA, test_back = NA)
+  
+  bblock <- list(fold = sdm_data$blocks$folds[[block_type]],
+                 pres = sdm_data$training$presence)
+  
+  for (z in 1:k) {
+    n_points$train_pres[z] <- length(bblock$pres[bblock$fold != z & bblock$pres == 1])
+    n_points$train_back[z] <- length(bblock$pres[bblock$fold != z & bblock$pres == 0])
+    n_points$test_pres[z] <- length(bblock$pres[bblock$fold == z & bblock$pres == 1])
+    n_points$test_back[z] <- length(bblock$pres[bblock$fold == z & bblock$pres == 0])
+  }
+  
+  return(n_points)
+}
+
+
+#' Get grid for spatial block CV
+#'
+#' This function uses the function [blockCV::cv_spatial_autocor()] from the package
+#' [blockCV] to calculate the appropriate size of the grid
+#'
+#' @param sdm_data object of type `sdm_dat` with species occurrence records
+#' @param env_layers environmental layers in SpatRaster format
+#' @param sel_vars which variables should be used for calculating the block size
+#' @param min_block_size minimum size of the block. If the calculated range is
+#'   smaller than this threshold, then the minimum size is used instead
+#' @param max_block_size maximum size of the block. If the calculated range is
+#'   larger than this threshold, then the maximum size is used instead
+#' @param verbose print messages
+#'
+#' @return grid (SpatRaster)
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' get_block_grid(sp_data, env_data)
+#' }
+get_block_grid <- function(sdm_data, env_layers, sel_vars = NULL,
+                           min_block_size = 0.2, max_block_size = 20,
+                           verbose = FALSE) {
+  
+  f_data <- cbind(sdm_data$training, sdm_data$coord_training)
+  f_data <- sf::st_as_sf(f_data, coords = colnames(sdm_data$coord_training),
+                         crs = "EPSG:4326")
+  
+  if (nrow(f_data) > 10000) {
+    f_data <- f_data[sample(1:nrow(f_data), 5000),]
+  }
+  
+  vars <- colnames(sdm_data$training)
+  vars <- vars[!grepl("presence", vars)]
+  
+  if (!is.null(sel_vars)) {
+    vars <- vars[vars %in% sel_vars]
+  }
+  
+  if (verbose) cli::cli_alert_info("Calculating grid size...")
+  sf_status <- sf::sf_use_s2()
+  sf::sf_use_s2(FALSE)
+  size <- suppressMessages(suppressWarnings(
+    blockCV::cv_spatial_autocor(x = f_data,
+                                column = vars,
+                                plot = FALSE,
+                                progress = FALSE)
+  ))
+  sf::sf_use_s2(sf_status)
+  
+  lyrs_ext <- ext(env_layers)
+  sel_size <- (size$range/1000)/111
+  
+  if (sel_size > max_block_size) {
+    if (verbose) cli::cli_alert_warning("Grid size ({sel_size}) is larger than {.var max_block_size}. Using {max_block_size} instead.")
+    sel_size <- max_block_size
+  }
+  if (sel_size < min_block_size) {
+    if (verbose) cli::cli_alert_warning("Grid size ({sel_size}) is smaller than {.var min_block_size}. Using {min_block_size} instead.")
+    sel_size <- min_block_size
+  }
+  
+  xmin_ext <- round(lyrs_ext[1]-0.1, 1)
+  ymax_ext <- round(lyrs_ext[4]+0.1, 1)
+  
+  ymin_t <- round(lyrs_ext[3]-0.1, 1)
+  test_ymin <- seq(ymax_ext, ymin_t, by = -sel_size)
+  ymin_ext <- ifelse(min(test_ymin) > ymin_t, round((min(test_ymin) - sel_size), 1), min(test_ymin))
+  
+  xmax_t <- round(lyrs_ext[2]+0.1, 1)
+  test_xmax <- seq(xmin_ext, xmax_t, by = sel_size)
+  xmax_ext <- ifelse(max(test_xmax) < xmax_t, round((max(test_xmax) + sel_size), 1), max(test_xmax))
+  
+  block_list <- list(spatial_grid = rast(ext(xmin_ext, xmax_ext, ymin_ext, ymax_ext), resolution = sel_size))
+  
+  return(block_list)
+}
+
 
 
 # Old version

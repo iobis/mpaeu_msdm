@@ -22,7 +22,9 @@ gen_vsp(
   save_path = NULL,
   save_key = NULL,
   plot = TRUE,
-  test_mode = FALSE
+  test_mode = FALSE,
+  beta = 0.5,
+  alpha = -0.05
 )
 }
 \arguments{
@@ -86,6 +88,10 @@ generated.}
 sampling of points. This is mainly intended for testing if the
 environmental relationship functions are returning the expected suitability
 pattern (in this case, plot = \code{TRUE}).}
+
+\item{beta}{parameter passed to the PA conversion (see \link[virtualspecies:convertToPA]{virtualspecies::convertToPA})}
+
+\item{alpha}{parameter passed to the PA conversion (see \link[virtualspecies:convertToPA]{virtualspecies::convertToPA})}
 }
 \value{
 saved files in the project format

@@ -38,25 +38,13 @@
 #' ## How Files are saved?
 #' 
 #' Files will be saved on "data/species" (if the folder does not exist on the
-#' working directory it will be created) following a hive structure:
-#' 
-#' - key='grouping key of the species'
-#' - date='date being generated'
-#' - ftype='type of file, i.e., which database generated'
+#' working directory it will be created) and then a folder for each species,
+#' using the code key=AphiaID. Files are saved with the date of generation.
 #' 
 #' So, for a species with AphiaID 12345, from OBIS,
-#' downloaded on 2023-01-05, a folder would be structured as that:
+#' downloaded (or processed) on 2023-01-05, a folder would be structured as that:
 #' 
-#' data/species/key=12345/date=20230105
-#' 
-#' With the following folder inside:
-#' ftype=obis/
-#' 
-#' With a file called spdata0.parquet.
-#' 
-#' This structure enables easy indexing and querying with multiple species, specially
-#' when working with parquet datasets. Each of those keys will become a filtering feature.
-#' For more details see [arrow::open_dataset()]
+#' data/species/key=12345/obis_20230105.parquet
 #' 
 #' ## Changing the key
 #' 
@@ -92,11 +80,11 @@ split_dataset <- function(local_file,
   
   if (!is.null(change_key)) {
     if (!all(c("key", "new_key") %in% colnames(change_key)) | length(colnames(change_key)) != 2) {
-      stop("change_key have two columns named key and new_key")
+      stop("change_key does not have two columns named key and new_key")
     }
     if (!is.null(sel_keys)) {
       if (!all(sel_keys == change_key$new_key)) {
-        stop("change_key[['new_key']] have to be equal (in the same order) thand sel_keys")
+        stop("change_key[['new_key']] have to be equal (in the same order) than sel_keys")
       }
     }
   }
@@ -110,10 +98,14 @@ split_dataset <- function(local_file,
   
   if (tools::file_ext(local_file) == "parquet") {
     database <- open_dataset(local_file) %>%
-      {if(add_sel) select(., eval(strsplit(sel_columns, ",")[[1]])) else .}
+      {if(add_sel) select(., eval(strsplit(sel_columns, ",")[[1]])) else .} %>%
+      {if("decimallatitude" %in% names(.)) rename(., decimalLatitude = decimallatitude) else .} %>%
+      {if("decimallongitude" %in% names(.)) rename(., decimalLongitude = decimallongitude) else .}
   } else {
     database <- open_csv_dataset(local_file) %>%
-      {if(add_sel) select(., eval(strsplit(sel_columns, ",")[[1]])) else .}
+      {if(add_sel) select(., eval(strsplit(sel_columns, ",")[[1]])) else .} %>%
+      {if("decimallatitude" %in% names(.)) rename(., decimalLatitude = decimallatitude) else .} %>%
+      {if("decimallongitude" %in% names(.)) rename(., decimalLongitude = decimallongitude) else .}
   }
   
   if (!is.null(sel_keys)) {
@@ -148,16 +140,15 @@ split_dataset <- function(local_file,
         eval(parse(text = glue::glue(
           'database %>%
     mutate(key = [grouping_key]) %>%
-    mutate(date = format(Sys.Date(), "%Y%m%d")) %>%
     mutate(ftype = "[database_name]") %>%
     left_join(change_key_k, by = "key") %>%
     mutate(key = new_key) %>%
     select(-new_key) %>%
     filter(key %in% sel_keys_k) %>%
-    group_by(key, date, ftype) %>%
+    group_by(key) %>%
     write_dataset("data/species/",
                   format = "parquet",
-                  basename_template = "spdata{i}.parquet")',
+                  basename_template = "ftype=[database_name]_date=[format(Sys.Date(), "%Y%m%d")]_{i}.parquet")',
           .open = "[", .close = "]"
         )))
       } else {
@@ -165,12 +156,11 @@ split_dataset <- function(local_file,
           'database %>%
     mutate(key = [grouping_key]) %>%
     filter(key %in% sel_keys_k) %>%
-    mutate(date = format(Sys.Date(), "%Y%m%d")) %>%
     mutate(ftype = "[database_name]") %>%
-    group_by(key, date, ftype) %>%
+    group_by(key) %>%
     write_dataset("data/species/",
                   format = "parquet",
-                  basename_template = "spdata{i}.parquet")',
+                  basename_template = "ftype=[database_name]_date=[format(Sys.Date(), "%Y%m%d")]_{i}.parquet")',
           .open = "[", .close = "]"
         )))
       }
@@ -186,27 +176,25 @@ split_dataset <- function(local_file,
       eval(parse(text = glue::glue(
         'database %>%
     mutate(key = [grouping_key]) %>%
-    mutate(date = format(Sys.Date(), "%Y%m%d")) %>%
     mutate(ftype = "[database_name]") %>%
     left_join(change_key, by = "key") %>%
     mutate(key = new_key) %>%
     select(-new_key) %>%
-    group_by(key, date, ftype) %>%
+    group_by(key) %>%
     write_dataset("data/species/",
                   format = "parquet",
-                  basename_template = "spdata{i}.parquet")',
+                  basename_template = "ftype=[database_name]_date=[format(Sys.Date(), "%Y%m%d")]_{i}.parquet")',
         .open = "[", .close = "]"
       )))
     } else {
       eval(parse(text = glue::glue(
         'database %>%
     mutate(key = [grouping_key]) %>%
-    mutate(date = format(Sys.Date(), "%Y%m%d")) %>%
     mutate(ftype = "[database_name]") %>%
-    group_by(key, date, ftype) %>%
+    group_by(key) %>%
     write_dataset("data/species/",
                   format = "parquet",
-                  basename_template = "spdata{i}.parquet")',
+                  basename_template = "ftype=[database_name]_date=[format(Sys.Date(), "%Y%m%d")]_{i}.parquet")',
         .open = "[", .close = "]"
       )))
     }

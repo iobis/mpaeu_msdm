@@ -23,7 +23,7 @@ a list containing the folds, number of folds and division of records per fold.
 }
 \description{
 This function will generate cross-validation blocks randomly based on a grid,
-which may also be of latitutdinal blocks. This function is simpler than the
+which may also be of latitudinal blocks. This function is simpler than the
 \code{\link[blockCV:cv_spatial]{blockCV::cv_spatial()}}, but is aimed to be much faster.
 }
 \examples{

@@ -2,48 +2,35 @@
 % Please edit documentation in R/sdm_modules.R
 \name{sdm_module_brt}
 \alias{sdm_module_brt}
-\title{SDM module: Boosted Regression Trees}
+\title{Fit Boosted Regression Trees SDM using gbm}
 \usage{
 sdm_module_brt(
   sdm_data,
-  weight_resp = TRUE,
+  options = NULL,
+  verbose = TRUE,
   tune_blocks = "spatial_grid",
-  blocks_all = FALSE
+  metric = "cbi"
 )
 }
 \arguments{
-\item{sdm_data}{object of class sdm_dat returned by \code{\link[=mp_prepare_data]{mp_prepare_data()}}}
+\item{sdm_data}{\code{sdm_dat} object containing occurrences and environmental data}
 
-\item{weight_resp}{if weight_resp is \code{TRUE},
-then the response is weighted in a way that the total weight of presences
-is the same as the weight of background points (naive weighting)}
+\item{options}{list with options from \code{\link[=sdm_options]{sdm_options()}} to override the default}
 
-\item{tune_blocks}{the name of the blocks (added with \code{\link[=mp_prepare_blocks]{mp_prepare_blocks()}})
-which should be used for tuning the models}
+\item{verbose}{if \code{TRUE} display messages}
 
-\item{blocks_all}{if \code{TRUE}, then after tuning the model, it will
-produce cross-validated metrics for all types of blocks available (e.g.
-latitudinal)}
+\item{tune_blocks}{which blocks to use for cross-validation}
+
+\item{metric}{which metric to optimize in tuning using cross-validation}
 }
 \value{
-an sdm_result object (a list) containing:
-\itemize{
-\item name = name of method
-\item model = the model object
-\item timings = a character vector of the timings for each step
-\item parameters = the best tuned parameters
-\item cv_metrics = the cross-validated metrics
-\item full_metrics = the metrics of the final model fitted using the whole data.
-Just for reference, as this is not a fair scenario
-(same data used for training and testing).
-\item eval_metrics = metrics for the evaluation dataset (if this is supplied).
-}
+fitted model (\code{sdm_result} object)
 }
 \description{
-SDM module: Boosted Regression Trees
+Fit Boosted Regression Trees SDM using gbm
 }
 \examples{
 \dontrun{
-sdm_module_brt(species_data)
+sdm_species <- sdm_module_brt(sp_data)
 }
 }

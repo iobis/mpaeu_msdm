@@ -105,10 +105,30 @@ mp_prepare_data <- function(training, eval_data = NULL, species_id, native_shp =
     eval_data <- as.data.frame(cbind(presence = eval_data[,"presence"],
                                      terra::extract(env_layers, coord_eval, ID = F)))
     
+    if (length(unique(eval_data$presence)) == 1) {
+      if (verbose) cli::cli_alert_warning("No absence points found in the evaluation dataset. Sampling 10x the number of points from quadrature.")
+      
+      xy_d <- as.data.frame(env_layers, xy = T, na.rm = T)[,1:2]
+      colnames(xy_d) <- c("decimalLongitude", "decimalLatitude")
+      xy_d <- xy_d[sample(1:nrow(xy_d), size = (nrow(eval_data)*10), replace = FALSE),]
+      complement <- cbind(presence = 0, terra::extract(env_layers, xy_d, ID = F))
+      
+      eval_data <- rbind(eval_data, complement)
+      
+      coord_eval <- rbind(coord_eval, xy_d)
+      
+    }
+    
     if (any(is.na(eval_data))) {
       nas <- apply(eval_data, 1, sum)
       if (verbose) cli::cli_alert_warning("{sum(is.na(nas))} NA point{?s} found and removed from evaluation data.")
-      training_data <- training_data[!is.na(nas), ]
+      coord_eval <- coord_eval[!is.na(nas), ]
+      eval_data <- eval_data[!is.na(nas), ]
+      
+      if (sum(eval_data$presence) < 1) {
+        if (verbose) cli::cli_alert_warning("No presence points on evaluation data after NA removal. Removing evaluation dataset.")
+        eval_data <- coord_eval <- NULL
+      }
     }
     
   } else {

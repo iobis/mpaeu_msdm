@@ -15,9 +15,6 @@
 #' @param limit_rem a number between 0 and 1 limiting the percentage of points that can
 #' be considered outliers. The default value (0.01) says that no more than 1% of points
 #' can be outliers
-#' @param parallel enable parallel computation on the extraction of values from
-#' the distance layers (see [outqc_query_distances()])
-#' @param mc_cores number of cores to be used by parallel extraction
 #'
 #' @return a `matrix` with columns equal the number of methods used. Each line is 
 #' one observation; values of 0 indicates normal values, while 1 indicates outliers.
@@ -32,6 +29,8 @@
 #' to compute, as we don't have any control information of what is indeed an outlier (otherwise we could have removed it!).
 #' After tests with simulated and real data, the 0.8 value seems to be a reasonable threshold.
 #' 
+#' Note that for using this function you need to first run [outqc_get_distances()] to get the distances.
+#' 
 #'
 #' @examples
 #' \dontrun{
@@ -45,9 +44,7 @@ outqc_geo <- function(pts,
                       mad_mltp = 6,
                       isoforest_th = 0.8,
                       mdist_method = "mean",
-                      limit_rem = 0.01,
-                      parallel = TRUE,
-                      mc_cores = NULL) {
+                      limit_rem = 0.01) {
   
   if (is.null(k)) {
     mdk <- nrow(pts)-1
@@ -58,13 +55,11 @@ outqc_geo <- function(pts,
   dists <- outqc_query_distances(pts,
                                  kdist = mdk,
                                  distfolder = dist_folder,
-                                 parallel = parallel,
-                                 mc_cores = mc_cores,
                                  returnid = T)
   
   if (any(grepl("mdist", methods))) {
     
-    m_dists <- apply(dists$dist, 1, mdist_method)
+    m_dists <- apply(dists, 1, mdist_method)
     
     to <- order(m_dists, decreasing = T)
     
@@ -92,11 +87,11 @@ outqc_geo <- function(pts,
   
   if (any(grepl("isoforest", methods))) {
     
-    m_dists <- apply(dists$dist, 1, "mean")
+    m_dists <- apply(dists, 1, "mean")
     na_pts <- which(is.na(m_dists))
     
     isof_m <- isotree::isolation.forest(
-      dists$dist,
+      dists,
       ndim = 2,
       ntrees = 500,
       nthreads = 1,
@@ -104,7 +99,7 @@ outqc_geo <- function(pts,
       prob_pick_pooled_gain = 0,
       prob_pick_avg_gain = 0)
     
-    isof_vals <- predict(isof_m, dists$dist)
+    isof_vals <- predict(isof_m, dists)
     isof_vals[na_pts] <- NA
     
     to <- order(isof_vals, decreasing = T)

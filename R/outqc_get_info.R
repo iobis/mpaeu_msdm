@@ -39,20 +39,16 @@
 #' base raster. At the same time, this will cause the computation to be much slower
 #' while also increasing the size of saved cells. In this case, it's interesting to
 #' aggregate the points to a coarser grid (e.g. 0.5 degrees). This will considerably
-#' improve computational time while also reducing the size of save files.
+#' improve computational time while also reducing the size of saved files.
 #' 
 #' ## Intended use
 #' 
 #' This function will save files with the distance for cell i to all other cells on
-#' the raster (according to the desired resolution). And why to save? Because later you
-#' can query the distances. The flux is for a set of points z, get all distances from
-#' z{i} to z{n-i}. Then query the distances to perform outlier calculations. When you run
-#' this function on the next dataset, it will run faster because potentially some of the cells 
-#' were already accounted for in the previous calculation. Thus, there is a time improvement each
-#' time the function is run, up to the point that all cells are calculated.
-#' 
-#' Alternatively you can pre-calculate the distance to all cells by not supplying the
-#' \code{target}. 
+#' the raster (according to the desired resolution). You can use those files directly,
+#' but on the most recent version of the package the intended use is that after
+#' getting all distances (by not supplying the \code{target}), you run the 
+#' function `outqc_dist_tozarr`. This will create a `zarr` storage which can 
+#' then be queried by the other functions.
 #'
 #' @return Files are saved on the disk.
 #' @export
@@ -81,7 +77,7 @@ outqc_get_distances <- function(base,
   if (is.null(target)) {
     if (!is.null(agg_res)) {
       if (verbose) cat("Aggregating by the resolution of", agg_res, "\n")
-      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]))
+      new_base <- terra::aggregate(base, ceiling(agg_res/terra::res(base)[1]), na.rm = T)
       #Get all cells that are not NA
       tg_cells <- terra::as.data.frame(new_base, cells = T, xy = T)
     } else {
@@ -182,14 +178,31 @@ outqc_get_distances <- function(base,
                                        
     
     # The distance will be computed to this cell
-    target_rast[target_cells[index,1]] <- 0
+    tcell <- terra::cellFromXY(target_rast, target_cells[index,2:3])
+    val <- target_rast[tcell][1,]
+    if (is.na(val)) {
+      p <- terra::vect(target_cells[index,2:3], geom = colnames(target_cells)[2:3], crs = "EPSG:4326")
+      p_b <- terra::buffer(p, 20000)
+      p_e <- terra::extract(target_rast, p_b, xy = T, ID = F)
+      p_e <- p_e[!is.na(p_e[,1]),]
+      if (nrow(p_e) > 0) {
+        p_e <- terra::vect(p_e, geom = colnames(p_e)[2:3], crs = "EPSG:4326")
+        near <- terra::nearest(p, p_e)
+        near <- terra::as.data.frame(near, geom = "XY")
+        tcell <- terra::cellFromXY(target_rast, near[1,c("x", "y")])
+      } else {
+        return(invisible(NULL))
+      }
+    }
+    target_rast[tcell] <- 0
+    #target_rast[target_cells[index,1]] <- 0
     
     # Compute distance and save in the outfolder
     dist_grid <- terra::gridDist(target_rast, scale = 1000)
     
     if (!is.null(ag_fact)) {
-      dist_grid <- terra::aggregate(dist_grid, fact = ag_fact, fun = min, na.rm = T)
-
+      dist_grid <- terra::aggregate(dist_grid, fact = ag_fact, fun = median, na.rm = T)
+      
       new_cell <- terra::cellFromXY(dist_grid, target_cells[index,2:3])
       new_cell <- format(new_cell, trim = T, scientific = FALSE)
     } else {
@@ -286,7 +299,7 @@ outqc_get_base <- function(resolution = 1,
   base <- terra::rast(resolution = resolution)
   base[] <- 1
   names(base) <- "dist"
-  crs(base) <- crs(maskpol)
+  terra::crs(base) <- terra::crs(maskpol)
   
   # Mask
   base <- terra::mask(base, maskpol, inverse = T)
@@ -297,20 +310,121 @@ outqc_get_base <- function(resolution = 1,
 
 
 
+#' Convert QC distances to Zarr format
+#'
+#' @param distfolder the folder where the distances, calculated using [outqc_get_distances()], were saved
+#' @param remove_distances if \code{TRUE}, after converting to Zarr the calculated distances are deleted,
+#' and only the Zarr folder is kept
+#'
+#' @return saved Zarr files
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' outqc_dist_tozarr("distances")
+#' }
+outqc_dist_tozarr <- function(distfolder,
+                              remove_distances = TRUE) {
+  
+  cli::cli_alert_info("Connecting to Python through {.code reticulate}")
+  
+  # Check if folder exist and have files
+  if (!file.exists(distfolder) & length(list.files(distfolder)) < 1) {
+    stop("Folder does not exist or does not have any file.")
+  }
+  
+  # Save one that will be used as model
+  files <- list.files(distfolder, full.names = T, pattern = "\\.tif")
+  # Just to ensure that a file with valid points is used
+  nr <- 0
+  st <- 1
+  while (nr < 1000) {
+    r <- terra::rast(files[st])
+    nr <- nrow(terra::as.data.frame(r))
+    st <- st + 1
+  }
+  
+  outfolder <- paste0(distfolder, "/", "distances.zarr")
+  
+  # Run in Python
+  reticulate::py_run_string(glue::glue(
+    "
+import rasterio
+import zarr
+import xarray as xr
+import os
+import glob
+
+# Function to stack GeoTIFF files and save as Zarr using Xarray
+def geotiff_to_zarr(input_folder, output_path):
+    # Get a list of GeoTIFF files in the input folder
+    tiff_files = glob.glob(os.path.join(input_folder, '*.tif'))
+
+    # Check if there are any files
+    if not tiff_files:
+        print('No GeoTIFF files found in the specified folder.')
+        return
+
+    # Read the first GeoTIFF file to get metadata
+    with rasterio.open(tiff_files[0]) as src:
+        meta = src.meta
+        shape = src.shape
+
+    # Create a list to store Xarray DataArray objects
+    data_arrays = []
+    file_basenames = []  # Store basenames for later use
+
+    # Iterate through GeoTIFF files and create Xarray DataArray objects
+    for tiff_file in tiff_files:
+        file_basenames.append(int(os.path.splitext(os.path.basename(tiff_file))[0].replace('cell_', '')))
+        with rasterio.open(tiff_file) as src:
+            data = src.read(1)  # Assuming you want to read the first band
+            data_arrays.append(xr.DataArray(data, dims=('y', 'x')))
+
+    # Concatenate DataArray objects along a new dimension and add the basenames as a coordinate
+    stacked_data = xr.concat(data_arrays, dim='time')
+    stacked_data['time'] = file_basenames
+    
+    # Save the Xarray dataset as Zarr
+    stacked_data.to_zarr(output_path, mode='w')
+
+
+# Example usage:
+input_folder = '<distfolder>'
+output_path = '<outfolder>'
+
+geotiff_to_zarr(input_folder, output_path)
+    ", .open = "<", .close = ">"
+  ))
+  
+  terra::writeRaster(r, paste0(outfolder, "/basedistances.tif"), overwrite = T)
+  
+  if (remove_distances & file.exists(outfolder)) {
+    cli::cli_alert_info("Removing {.var .tif} files")
+    rm(r)
+    file.remove(files)
+  }
+  
+  cli::cli_alert_success("Zarr file saved at {.path {outfolder}}")
+  
+  return(invisible(NULL))
+  
+}
+
+
+
+
 #' Query the distance from points and k neighbours
 #'
 #' @param pts the points to be queried
-#' @param base a base rast (of the same resolution as the one used when 
-#' calculating the distances), so the points can be indexed as cells. If NULL, 
-#' one of the distance layers from \code{distfolder} will be used instead.
 #' @param kdist how much neighbours should be considered in the K nearest search
 #' @param try_closest if you set \code{try_closest = TRUE} when getting the distances,
 #' then you should also set it as \code{TRUE} here. Otherwise, the function will not be
 #' able to find the valid cells that were computed.
 #' @param distfolder the folder holding the distance layers produced with [outqc_get_distances()]
-#' @param parallel run query in parallel (recommended for larger datasets). 
-#' For now, will not work on Windows based systems.
-#' @param mc_cores number of cores to use for parallel computation. 
+#' @param mode one of \code{zarr}, \code{xarray} or \code{tif}. Default is \code{zarr} which assumes that
+#' after running [outqc_get_distances()], the function [outqc_dist_tozarr()] was used.
+#' @param returnid if \code{TRUE} returns the ID
 #' 
 #' @description
 #' Extract from a set of points the distance to the K nearest neighbours based on
@@ -319,24 +433,29 @@ outqc_get_base <- function(resolution = 1,
 #' If \code{try_closest} was set to \code{TRUE} in when getting the distances,
 #' then it's possible that some non-valid (empty) cells were omited. In that case
 #' the function will return NA for those records.
+#' 
+#' Note: for \code{mode = "zarr"}, which is the current default, you need to have 
+#' the `Rarr` package installed (through Bioconductor).
+#' 
+#' For mode \code{"xarray"}, you need Python and the [reticulate] package installed 
+#' and the `xarray` Python package. This mode is memory intensive and is not (always)
+#' returning the right results. It was kept only for development purposes.
 #'
 #' @return `matrix` with each row corresponding to a point, and each collumn the distance to the nearest K(k) neighbour.
 #' @export
 #'
-#' @import parallel
+#' @import parallel reticulate
 #'
 #' @examples
 #' \dontrun{
 #' outqc_query_distances(sp_pts)
 #' }
 outqc_query_distances <- function(pts,
-                                  base = NULL,
                                   kdist = NULL,
                                   try_closest = TRUE,
                                   distfolder = "distances",
-                                  returnid = TRUE,
-                                  parallel = TRUE,
-                                  mc_cores = NULL) {
+                                  mode = "zarr",
+                                  returnid = TRUE) {
   
   if (is.null(kdist)) {
     kdist <- nrow(pts)-1
@@ -352,11 +471,11 @@ outqc_query_distances <- function(pts,
     }
   }
   
-  if (is.null(base)) {
+  if (mode == "tif") {
     base <- terra::rast(list.files(distfolder, pattern = ".tif", full.names = T)[1])
+  } else {
+    base <- terra::rast(paste0(distfolder, "/distances.zarr/basedistances.tif"))
   }
-  
-  #pts.dist <- matrix(nrow = nrow(pts), ncol = kdist)
   
   pts <- as.data.frame(pts)
   
@@ -426,21 +545,202 @@ outqc_query_distances <- function(pts,
     }
   }
   
-  if (is.null(mc_cores)) {
-    if (.Platform$OS.type != "unix") {
-      mc_cores <- 1
-    } else {
-      mc_cores <- getOption("mc.cores", 2L)
-    }
-  }
   
-  if (parallel) {
-    pts_kdist <- mclapply(1:length(cells_index), extract_dist, cells_index = cells_index)
-  } else {
+  if (mode == "tif") {
     pts_kdist <- lapply(1:length(cells_index), extract_dist, cells_index = cells_index)
+  } else if (mode == "xarray") {
+    
+    # Import xarray
+    xr <- import("xarray")
+    
+    # Open distances
+    dists <- xr$open_zarr(paste0(distfolder, "/distances.zarr"))
+    
+    # Rename variable for easier handling
+    dists <- dists$rename_vars('__xarray_dataarray_variable__' = 'distances')
+    
+    # Retrieve existing cells
+    exist_cells <- dists$time$values
+    # For compatibility with new Xarray versions/reticulate problems:
+    if (!inherits(exist_cells, c("array", "integer", "double", "numeric"))) {
+      exist_cells <- dists$time$values$tolist()
+    }
+    
+    
+    # Check if all are valid
+    cell_list <- cells_index
+    
+    cell_list_inv <- cell_list[!cell_list %in% exist_cells]
+    
+    # Check for closest or remove
+    if (length(cell_list_inv) > 0 & try_closest) {
+      
+      to_valid <- terra::adjacent(base, cell_list_inv, directions = 8)
+      
+      to_valid <- unname(apply(to_valid, 1, function(x) {
+        x_val <- x %in% exist_cells
+        if (any(x_val)) {
+          x <- x[x_val]
+          x[1]
+        } else {
+          NA
+        }
+      }))
+      
+      cell_list[!cell_list %in% exist_cells] <- to_valid
+      
+    } else {
+      cell_list[!cell_list %in% exist_cells] <- NA
+    }
+    
+    cell_equiv <- data.frame(cell_orig = cells_index, cell_new = cell_list)
+    
+    cell_to_do <- na.omit(unique(cell_list))
+    
+    cell_cols <- terra::colFromCell(base, cell_to_do)
+    cell_rows <- terra::rowFromCell(base, cell_to_do)
+    
+    cell_values <- list()
+    
+    vals <- dists$sel(time = cell_to_do[order(cell_to_do)])
+    
+    for (z in 1:length(cell_to_do)) {
+      vals_sel <- vals$distances$sel(x = as.integer(cell_cols[z]-1),
+                                     y = as.integer(cell_rows[z]-1))
+      cell_values[[z]] <- vals_sel$values
+      
+      # For compatibility with new Xarray versions/reticulate problems:
+      if (!inherits(cell_values[[z]], c("array", "integer", "double", "numeric"))) {
+        cell_values[[z]] <- vals_sel$values$tolist()
+      }
+      
+      cell_values[[z]] <- cell_values[[z]][order(cell_values[[z]])][2:(kdist+1)]
+      
+    }
+    
+    # Join information with the original values
+    all_values <- do.call("rbind", cell_values)
+    
+    all_values <- cbind(cell_new = cell_to_do, all_values)
+    
+    all_values <- dplyr::left_join(cell_equiv, as.data.frame(all_values), by = "cell_new")
+    names(all_values)[1] <- "cell"
+    
+    # Join with the initial points list
+    final_values <- dplyr::left_join(pts, all_values, by = "cell")
+    
+  } else if (mode == "zarr") {
+    
+    require(Rarr)
+    
+    zarr_address <- paste0(distfolder, "/distances.zarr")
+    zarr_details <- zarr_overview(zarr_address, as_data_frame = T)
+    
+    z_time <- zarr_details[grepl("time", zarr_details$path),]
+    z_data <- zarr_details[!grepl("time", zarr_details$path),]
+
+    # Retrieve existing cells
+    exist_cells <- read_zarr_array(z_time$path)
+    
+    # Check if all are valid
+    cell_list <- cells_index
+    
+    cell_list_inv <- cell_list[!cell_list %in% exist_cells]
+    
+    # Check for closest or remove
+    if (length(cell_list_inv) > 0 & try_closest) {
+      
+      to_valid <- terra::adjacent(base, cell_list_inv, directions = 8)
+      
+      to_valid <- unname(apply(to_valid, 1, function(x) {
+        x_val <- x %in% exist_cells
+        if (any(x_val)) {
+          x <- x[x_val]
+          x[1]
+        } else {
+          NA
+        }
+      }))
+      
+      cell_list[!cell_list %in% exist_cells] <- to_valid
+      
+    } else {
+      cell_list[!cell_list %in% exist_cells] <- NA
+    }
+    
+    cell_equiv <- data.frame(cell_orig = cells_index, cell_new = cell_list)
+    
+    cell_to_do <- na.omit(unique(cell_list))
+    
+    cell_cols <- terra::colFromCell(base, cell_to_do)
+    cell_rows <- terra::rowFromCell(base, cell_to_do)
+    
+    get_time <- function(cell) {
+      which(exist_cells == cell)
+    }
+    
+    time_as_cell <- unlist(lapply(cell_to_do, get_time))
+    
+    extract_fz_info <- function(rows, cols) {
+      min_r <- min(rows)
+      max_r <- max(rows)
+      r_seq <- min_r:max_r
+      
+      min_c <- min(cols)
+      max_c <- max(cols)
+      c_seq <- min_c:max_c
+      
+      rows_eq <- unlist(lapply(rows, function(x) which(r_seq == x)))
+      cols_eq <- unlist(lapply(cols, function(x) which(c_seq == x)))
+      
+      list(r_seq = r_seq, c_seq = c_seq,
+           req = rows_eq, ceq = cols_eq)
+    }
+    
+    fzinfo <- extract_fz_info(cell_rows,
+                              cell_cols)
+    
+    extract_from_zarr <- function(fz_info, t_index, kdist, data_zarr_path) {
+      
+      t_index_sp <- split(seq_along(t_index), ceiling(seq_along(t_index)/2000))
+      
+      zar_vf <- lapply(t_index_sp, function(ti){
+        index <- list(t_index[ti], fz_info$r_seq, fz_info$c_seq)
+        zar <- read_zarr_array(data_zarr_path, index = index)
+        
+        extract_values <- function(slice, rows, cols, kdist) {
+          sv <- slice[cbind(rows, cols)]
+          return(sv[order(sv)][2:(kdist+1)])
+        }
+        
+        zar_v <- apply(zar, 1, extract_values,
+                       rows = fz_info$req, cols = fz_info$ceq, kdist = kdist)
+        return(zar_v)
+      })
+      
+      zar_vf <- do.call("cbind", zar_vf)
+      
+      return(zar_vf)
+    }
+    
+    # Join information with the original values
+    all_values <- extract_from_zarr(fzinfo,
+                                    time_as_cell,
+                                    kdist,
+                                    z_data$path)
+    all_values <- t(all_values)
+    
+    all_values <- cbind(cell_new = cell_to_do, all_values)
+    
+    all_values <- dplyr::left_join(cell_equiv, as.data.frame(all_values), by = "cell_new")
+    names(all_values)[1] <- "cell"
+    
+    # Join with the initial points list
+    final_values <- dplyr::left_join(pts, all_values, by = "cell")
+    
   }
   
-  if (returnid) {
+  if (returnid & mode == "tif") {
     pts_id <- lapply(pts_kdist, function(x) x$id)
     pts_id <- data.frame(do.call("rbind", pts_id))
     
@@ -453,18 +753,24 @@ outqc_query_distances <- function(pts,
     colnames(pts_id) <- paste0("K", 1:kdist)
   }
   
-  pts_dist <- lapply(pts_kdist, function(x) x$dist)
-  pts_dist <- data.frame(do.call("rbind", pts_dist))
+  if (mode == "tif") {
+    pts_dist <- lapply(pts_kdist, function(x) x$dist)
+    pts_dist <- data.frame(do.call("rbind", pts_dist))
+    
+    pts_dist$cell <- cells_index
+    
+    pts_join <- dplyr::left_join(pts, pts_dist, by = "cell")
+    
+    pts_dist <- pts_join[,!colnames(pts_join) %in% c("cell", "decimalLongitude", "decimalLatitude", "x", "y")]
+    
+    colnames(pts_dist) <- paste0("K", 1:kdist)
+  } else {
+    pts_dist <- final_values[,!colnames(final_values) %in% c("cell", "cell_new", "decimalLongitude", "decimalLatitude", "x", "y")]
+    
+    colnames(pts_dist) <- paste0("K", 1:kdist)
+  }
   
-  pts_dist$cell <- cells_index
-  
-  pts_join <- dplyr::left_join(pts, pts_dist, by = "cell")
-  
-  pts_dist <- pts_join[,!colnames(pts_join) %in% c("cell", "decimalLongitude", "decimalLatitude", "x", "y")]
-  
-  colnames(pts_dist) <- paste0("K", 1:kdist)
-  
-  if (returnid) {
+  if (returnid & mode == "tif") {
     return(list(
       dist = pts_dist,
       id = pts_id

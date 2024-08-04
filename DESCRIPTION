@@ -1,6 +1,6 @@
 Package: obissdm
 Title: Tools for generating SDMs used within the MPA Europe project
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: 
     c(person("Silas", "Principe", , "s.principe@unesco.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-8059-6304")),
@@ -9,7 +9,7 @@ Description: This package was created to hold the functions used to generate the
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.1
 Depends: 
     R (>= 3.5.0)
 LazyData: true

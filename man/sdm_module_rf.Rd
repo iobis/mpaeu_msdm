@@ -2,55 +2,35 @@
 % Please edit documentation in R/sdm_modules.R
 \name{sdm_module_rf}
 \alias{sdm_module_rf}
-\title{SDM module: Random Forest}
+\title{Fit Random Forest SDM using randomForest}
 \usage{
 sdm_module_rf(
   sdm_data,
-  method = "classification",
-  type = "down-sampled",
+  options = NULL,
+  verbose = TRUE,
   tune_blocks = "spatial_grid",
-  blocks_all = FALSE
+  metric = "cbi"
 )
 }
 \arguments{
-\item{sdm_data}{object of class sdm_dat returned by \code{\link[=mp_prepare_data]{mp_prepare_data()}}}
+\item{sdm_data}{\code{sdm_dat} object containing occurrences and environmental data}
 
-\item{method}{one of "classification" or "regression." If type is "down-sampled",
-then method have to be "classification"}
+\item{options}{list with options from \code{\link[=sdm_options]{sdm_options()}} to override the default}
 
-\item{type}{either "normal" or "down-sampled" (see details)}
+\item{verbose}{if \code{TRUE} display messages}
 
-\item{tune_blocks}{the name of the blocks (added with \code{\link[=mp_prepare_blocks]{mp_prepare_blocks()}})
-which should be used for tuning the models}
+\item{tune_blocks}{which blocks to use for cross-validation}
 
-\item{blocks_all}{if \code{TRUE}, then after tuning the model, it will
-produce cross-validated metrics for all types of blocks available (e.g.
-latitudinal)}
+\item{metric}{which metric to optimize in tuning using cross-validation}
 }
 \value{
-an sdm_result object (a list) containing:
-\itemize{
-\item name = name of method
-\item model = the model object
-\item timings = a character vector of the timings for each step
-\item parameters = the best tuned parameters
-\item cv_metrics = the cross-validated metrics
-\item full_metrics = the metrics of the final model fitted using the whole data.
-Just for reference, as this is not a fair scenario
-(same data used for training and testing).
-\item eval_metrics = metrics for the evaluation dataset (if this is supplied).
-}
+fitted model (\code{sdm_result} object)
 }
 \description{
-SDM module: Random Forest
-}
-\details{
-Random forest is specially sensitive for class-imbalance (even for regression).
-An alternative is to run a down-sampled classification, which will draw
-equal sized samples of presence/background.
+Fit Random Forest SDM using randomForest
 }
 \examples{
 \dontrun{
-sdm_module_rf(species_data)
+sdm_species <- sdm_module_rf(sp_data)
 }
 }

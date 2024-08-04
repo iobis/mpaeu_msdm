@@ -2,71 +2,35 @@
 % Please edit documentation in R/sdm_modules.R
 \name{sdm_module_lasso}
 \alias{sdm_module_lasso}
-\title{SDM module: LASSO (Regularized Generalized Linear Models)}
+\title{Fit Elasticnet/LASSO SDM using glmnet}
 \usage{
 sdm_module_lasso(
   sdm_data,
-  weight_resp = TRUE,
-  method = "naive",
-  alpha_param = 1,
+  options = NULL,
+  verbose = TRUE,
   tune_blocks = "spatial_grid",
-  blocks_all = FALSE,
-  total_area = NULL
+  metric = "cbi"
 )
 }
 \arguments{
-\item{sdm_data}{object of class sdm_dat returned by \code{\link[=mp_prepare_data]{mp_prepare_data()}}}
+\item{sdm_data}{\code{sdm_dat} object containing occurrences and environmental data}
 
-\item{weight_resp}{if weight_resp is \code{TRUE}, then the occurrence points
-are weighted according to weighting method (see below)}
+\item{options}{list with options from \code{\link[=sdm_options]{sdm_options()}} to override the default}
 
-\item{method}{the method for the weighting (if \code{weight_resp = TRUE}).
-Should be one of "naive", "iwlr" (for Infinitely Weighted Regression) or
-"dwpr" (for Down-Weighted Poisson Regression). If "naive" then the response
-is weighted in a way that the total weight of presences is the same as the
-weight of background points}
+\item{verbose}{if \code{TRUE} display messages}
 
-\item{tune_blocks}{the name of the blocks (added with \code{\link[=mp_prepare_blocks]{mp_prepare_blocks()}})
-which should be used for tuning the models}
+\item{tune_blocks}{which blocks to use for cross-validation}
 
-\item{blocks_all}{if \code{TRUE}, then after tuning the model, it will
-produce cross-validated metrics for all types of blocks available (e.g.
-latitudinal)}
-
-\item{total_area}{if weighting method is the DWPR (Down-Weighted Poisson
-Regression), a numeric value with the total area of the study region}
+\item{metric}{which metric to optimize in tuning using cross-validation}
 }
 \value{
-an sdm_result object (a list) containing:
-\itemize{
-\item name = name of method
-\item model = the model object
-\item timings = a character vector of the timings for each step
-\item parameters = the best tuned parameters
-\item cv_metrics = the cross-validated metrics
-\item full_metrics = the metrics of the final model fitted using the whole data.
-Just for reference, as this is not a fair scenario
-(same data used for training and testing).
-\item eval_metrics = metrics for the evaluation dataset (if this is supplied).
-}
+fitted model (\code{sdm_result} object)
 }
 \description{
-Implements the Lasso Regularized Generalized Linear Models through the
-\link{glmnet} package. This function can also be used to fit Ridge regression or
-elastic net by modifying the alpha parameter. Tuning the alpha parameter is
-also possible (see details)
-}
-\details{
-If you give a vector of values for the \code{alpha_param}, then the function
-will cross-validate models through the several alpha values and select the one
-with least error (mean squared error). Once the Alpha was established,
-it will then cross-validate again a model with that alpha to obtain the best
-lambda parameter.
-
-The \code{predict} method is the same for any of the implementations (lasso, ridge or elastic net)
+Fit Elasticnet/LASSO SDM using glmnet
 }
 \examples{
 \dontrun{
-sdm_module_lasso(species_data)
+sdm_species <- sdm_module_lasso(sp_data)
 }
 }

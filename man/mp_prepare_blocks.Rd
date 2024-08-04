@@ -15,6 +15,9 @@ mp_prepare_blocks(
   manual_shp = NULL,
   n_iterate = 50,
   retry_if_zero = FALSE,
+  min_block_size = 0.2,
+  max_block_size = 20,
+  min_class = 0,
   verbose = TRUE
 )
 }
@@ -48,8 +51,21 @@ containing the grids for one or both of spatial_grid and spatial_lat}
 have a 0 parameter (either for training or testing presence/background),
 the function will retry to assign folds, by randomly decreasing or
 increasing the resolution of the original grid. The number of new trials is
-5, but you can change this value by supplying an integer instead of
-\code{TRUE} for this parameter.}
+5 by default, but you can change this value by supplying an integer instead of
+\code{TRUE} for this parameter. You can also retry in case of a different value
+(e.g. only 1 test point) by changing the \code{min_class} parameter}
+
+\item{min_block_size}{if \code{retry_if_zero = TRUE}, then define the minimum size
+the block can have}
+
+\item{max_block_size}{if \code{retry_if_zero = TRUE}, then define the maximum size
+the block can have}
+
+\item{min_class}{if \code{retry_if_zero = TRUE}, the function will test if any of the folds
+have a zero in any of the classes, but instead of 0 it's possible to set a different value,
+for example 1 to have folds with at least 2 points in each class. Note that if you change this value for
+something too large and your points are not well distributed, then the function will probably fail
+in assigning the groups}
 
 \item{verbose}{if \code{TRUE}, print messages}
 }

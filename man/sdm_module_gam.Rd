@@ -2,69 +2,35 @@
 % Please edit documentation in R/sdm_modules.R
 \name{sdm_module_gam}
 \alias{sdm_module_gam}
-\title{SDM module: Generalized Additive Model}
+\title{Fit GAM SDM using mgcv}
 \usage{
 sdm_module_gam(
   sdm_data,
-  method = "iwlr",
-  weight_resp = TRUE,
+  options = NULL,
+  verbose = TRUE,
   tune_blocks = "spatial_grid",
-  blocks_all = FALSE,
-  total_area = NULL
+  metric = "cbi"
 )
 }
 \arguments{
-\item{sdm_data}{object of class sdm_dat returned by \code{\link[=mp_prepare_data]{mp_prepare_data()}}}
+\item{sdm_data}{\code{sdm_dat} object containing occurrences and environmental data}
 
-\item{method}{which method to use for the GAM. One of normal, iwlr or dwpr
-(see details)}
+\item{options}{list with options from \code{\link[=sdm_options]{sdm_options()}} to override the default}
 
-\item{weight_resp}{wether to apply weights or not for the normal type (see
-details)}
+\item{verbose}{if \code{TRUE} display messages}
 
-\item{tune_blocks}{the name of the blocks (added with \code{\link[=mp_prepare_blocks]{mp_prepare_blocks()}})
-which should be used for tuning the models}
+\item{tune_blocks}{which blocks to use for cross-validation}
 
-\item{blocks_all}{if \code{TRUE}, then after tuning the model, it will
-produce cross-validated metrics for all types of blocks available (e.g.
-latitudinal)}
-
-\item{total_area}{for the DWPR, a numeric value with the total area of the
-study region}
+\item{metric}{which metric to optimize in tuning using cross-validation}
 }
 \value{
-an sdm_result object (a list) containing:
-\itemize{
-\item name = name of method
-\item model = the model object
-\item timings = a character vector of the timings for each step
-\item parameters = the best tuned parameters
-\item cv_metrics = the cross-validated metrics
-\item full_metrics = the metrics of the final model fitted using the whole data.
-Just for reference, as this is not a fair scenario
-(same data used for training and testing).
-\item eval_metrics = metrics for the evaluation dataset (if this is supplied).
-}
+fitted model (\code{sdm_result} object)
 }
 \description{
-SDM module: Generalized Additive Model
-}
-\details{
-The following methods are available
-\itemize{
-\item \code{normal}: a standard binomial GAM. If weight_resp is \code{TRUE},
-then the response is weighted in a way that the total weight of presences
-is the same as the weight of background points (naive weighting).
-\item \code{iwlr}: Infinitely Weighted Linear Regression
-\item \code{dwpr}: Down Weighted Poisson Regression
-}
-}
-\note{
-Although the DWPR option is available for GAM, it will usually take long time
-to run. Users are advised to avoid DWPR for this algorithm.
+Fit GAM SDM using mgcv
 }
 \examples{
 \dontrun{
-sdm_module_gam(species_data)
+sdm_species <- sdm_module_gam(sp_data)
 }
 }

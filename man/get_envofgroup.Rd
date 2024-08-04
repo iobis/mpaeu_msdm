@@ -11,6 +11,7 @@ get_envofgroup(
   scenario = "current",
   period = NULL,
   hypothesis = NULL,
+  load_all = FALSE,
   conf_file = "sdm_conf.yml",
   env_folder = "data/env",
   future_name = "future",
@@ -33,8 +34,12 @@ future/past. See details}
 \item{period}{optional character indicating the period}
 
 \item{hypothesis}{if \code{NULL}, it will retrieve the first available
-hypothesis list. Otherwise, it will look for the list equivalent to the
+hypothesis list (or all if \code{load_all=TRUE, see below}).
+Otherwise, it will look for the list equivalent to the
 hypothesis. Should be a character (e.g. "hypothesis1")}
+
+\item{load_all}{if \code{TRUE} it will load the unique files from all
+available hypothesis for that group.}
 
 \item{conf_file}{the path for the YAML configuration file}
 

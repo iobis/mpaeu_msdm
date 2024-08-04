@@ -6,21 +6,15 @@
 \usage{
 outqc_query_distances(
   pts,
-  base = NULL,
   kdist = NULL,
   try_closest = TRUE,
   distfolder = "distances",
-  returnid = TRUE,
-  parallel = TRUE,
-  mc_cores = NULL
+  mode = "zarr",
+  returnid = TRUE
 )
 }
 \arguments{
 \item{pts}{the points to be queried}
-
-\item{base}{a base rast (of the same resolution as the one used when
-calculating the distances), so the points can be indexed as cells. If NULL,
-one of the distance layers from \code{distfolder} will be used instead.}
 
 \item{kdist}{how much neighbours should be considered in the K nearest search}
 
@@ -30,10 +24,10 @@ able to find the valid cells that were computed.}
 
 \item{distfolder}{the folder holding the distance layers produced with \code{\link[=outqc_get_distances]{outqc_get_distances()}}}
 
-\item{parallel}{run query in parallel (recommended for larger datasets).
-For now, will not work on Windows based systems.}
+\item{mode}{one of \code{zarr}, \code{xarray} or \code{tif}. Default is \code{zarr} which assumes that
+after running \code{\link[=outqc_get_distances]{outqc_get_distances()}}, the function \code{\link[=outqc_dist_tozarr]{outqc_dist_tozarr()}} was used.}
 
-\item{mc_cores}{number of cores to use for parallel computation.}
+\item{returnid}{if \code{TRUE} returns the ID}
 }
 \value{
 \code{matrix} with each row corresponding to a point, and each collumn the distance to the nearest K(k) neighbour.
@@ -45,6 +39,13 @@ distance layers generated with \code{\link[=outqc_get_distances]{outqc_get_dista
 If \code{try_closest} was set to \code{TRUE} in when getting the distances,
 then it's possible that some non-valid (empty) cells were omited. In that case
 the function will return NA for those records.
+
+Note: for \code{mode = "zarr"}, which is the current default, you need to have
+the \code{Rarr} package installed (through Bioconductor).
+
+For mode \code{"xarray"}, you need Python and the \link{reticulate} package installed
+and the \code{xarray} Python package. This mode is memory intensive and is not (always)
+returning the right results. It was kept only for development purposes.
 }
 \examples{
 \dontrun{

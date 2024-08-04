@@ -25,14 +25,21 @@
 #'   download will fail - see [rgbif::occ_download()]).
 #' @param absence only include absence records (\code{TRUE}), exclude absence
 #'   records (\code{NULL}) or include absence records (\code{include}).
-#' @param username the GBIF username, if not stored on the R environment (see
-#'   details).
-#' @param password the GBIF password, if not stored on the R environment (see
-#'   details).
 #' @param exclude if \code{NULL} include all types of specimens. Alternatively,
 #'   you can pass a vector of types of specimen to exclude (e.g. supplying
 #'   \code{c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")} will exclude fossils and
 #'   living specimens).
+#' @param mode one of \code{search}, \code{cell} or \code{download}. Search will
+#'   use the [rgbif::occ_search()] function, and have a limit of 200.000
+#'   records. It is a good approach to fast results, but in general
+#'   \code{download} should be used (see details). Mode \code{cell} uses the
+#'   GBIF mapper API through the package [speedy] and returns cell records
+#'   aggregated in a certain resolution. At this moment only \code{download} is
+#'   available.
+#' @param username the GBIF username, if not stored on the R environment (see
+#'   details).
+#' @param password the GBIF password, if not stored on the R environment (see
+#'   details).
 #' @param format format to download. One of \code{"SIMPLE_CSV"} or
 #'   \code{"SIMPLE_PARQUET"}. If \code{NULL} (default), then a simple CSV is
 #'   downloaded.
@@ -48,6 +55,7 @@
 #' @param raw_path the path to the download folder. If \code{NULL}, the working
 #'   folder is used. Ignored if \code{wait} is \code{FALSE}.
 #' @param import if \code{TRUE}, the data is imported as a data frame.
+#' @param cell_resolution if \code{mode = "cell"}, which resolution to use.
 #' @param verbose if \code{TRUE} messages are printed.
 #' 
 #' @return a data frame containing occurrences or a GBIF download object.
@@ -65,18 +73,22 @@ occurrence_gbif <- function(scientificname = NULL,
                             enddepth = NULL,
                             geometry = NULL,
                             absence = NULL,
+                            exclude = NULL,
+                            mode = "search",
                             username = NULL,
                             password = NULL,
-                            exclude = NULL,
                             format = NULL,
                             wait = TRUE,
                             raw_path = NULL,
                             import = TRUE,
+                            cell_resolution = NULL,
                             verbose = FALSE) {
+  
+  require(rgbif)
   
   # Check arguments
   args <- as.list(environment())
-  args <- args[!grepl("verbose|username|password|format|wait", names(args))]
+  args <- args[!grepl("verbose|username|password|format|wait|mode|cell_resolution", names(args))]
   
   if (all(is.null(unlist(args)))) {
     stop("You should supply at least one predicate.")
@@ -86,9 +98,11 @@ occurrence_gbif <- function(scientificname = NULL,
     format <- "SIMPLE_CSV"
   }
   
-  # Get GBIF user/password
-  username <- .get_user_pass(username, "username")
-  password <- .get_user_pass(password, "password")
+  if (mode == "download") {
+    # Get GBIF user/password
+    username <- .get_user_pass(username, "username")
+    password <- .get_user_pass(password, "password")
+  }
   
   # Get predicates
   pred_occ <- list(pred("hasCoordinate", TRUE))
@@ -262,4 +276,281 @@ occurrence_gbif <- function(scientificname = NULL,
   }
   
   return(value)
+}
+
+
+#' Download partial or full marine data from GBIF (using AWS export)
+#'
+#' @param full_mode if `TRUE` (default) then the full export of GBIF is downloaded.
+#'  That will consume something around 250GB of space. Note that in this case,
+#'  `scientificname`, `taxonid`, `startdate` or/and `enddate` are ignored. 
+#'  If `FALSE`, then a partial download is executed based on the filters (one of
+#'   `scientificname`, `taxonid`, `startdate` or/and `enddate` needs to be supplied)
+#' @param export_path path to a folder where file will be saved
+#' @param scientificname the scientific name of the species or the taxon key for
+#'   the species obtained from GBIF. The second is preferred and you can obtain
+#'   the taxon key using the function [get_gbif_keys()]. If a scientific name is
+#'   supplied, the function will first look in the GBIF taxonomic backbone for a
+#'   match and then use the key to download, but you will have no control on the
+#'   matching.
+#' @param taxonid the AphiaID of the species. If supplied, then the function
+#'   will first look into WoRMS for the species name and then obtain the taxon
+#'   key from GBIF. Ignored if \code{scientificname} is supplied.
+#' @param startdate the earliest date on which occurrence took place.
+#' @param enddate the latest date on which the occurrence took place.
+#' @param format format to download in case of partial download. One of \code{"parquet"} or
+#'   \code{"csv"}. If \code{NULL} (default), then \code{"parquet"} is
+#'   downloaded.
+#' @param backend the backend to be used in case of partial download. One of `arrow` or `duckdb` (the later is working better).
+#' @param version the version of the full export to use (see: https://registry.opendata.aws/gbif/). 
+#'   If `NULL`, the latest one is used
+#' @param bucket which bucket to use. If `NULL` the default bucket is used (see [gbifdb::gbif_remote()])
+#' @param verbose if \code{TRUE} messages are printed.
+#' 
+#' @return path to saved file (and files saved)
+#' @export
+#' 
+#' @details
+#' Downloading the full dataset is much faster if your query is really big (i.e.
+#' the resulting data have many millions of records), but with the cost of a lot of storage
+#' consumed. Of course, you can later process and reduce the file.
+#' 
+#' When doing partial download, files are saved partitioned by the taxonomic order.
+#' 
+#' DuckDB is performing better and is the recommended backend in case of not full download.
+#' 
+#'
+#' @examples
+#' \dontrun{
+#' dir <- tempdir()
+#' occurrence_gbif_db("Leptuca thayeri", dir)
+#' }
+occurrence_gbif_db <- function(full_mode = TRUE,
+                               export_path,
+                               scientificname = NULL,
+                               taxonid = NULL,
+                               startdate = NULL,
+                               enddate = NULL,
+                               format = NULL,
+                               backend = "duckdb",
+                               version = NULL,
+                               bucket = NULL,
+                               verbose = FALSE) {
+  
+  fs::dir_create(export_path)
+  
+  if (!full_mode) {
+    
+    if (verbose) cli::cli_alert_info("Partial download. Initializing.")
+    
+    # Check arguments
+    args <- as.list(environment())
+    args <- args[grepl("scientificname|taxonid|startdate|enddate", names(args))]
+    
+    if (all(is.null(unlist(args)))) {
+      stop("You should supply at least one predicate.")
+    }
+    
+    require(dplyr)
+    
+    if (is.null(format)) {
+      format <- "parquet"
+    } else if (format != "parquet" & format != "csv") {
+      warning("`format` should be one of 'parquet' or 'csv'. Using 'parquet'")
+      format <- "parquet"
+    }
+    
+    if (is.null(version)) {
+      version <- gbifdb::gbif_version()
+    }
+    if (is.null(bucket)) {
+      bucket <- gbifdb:::gbif_default_bucket()
+    }
+    
+    bucket_add <- paste0("s3://", bucket, "/occurrence/", version, "/occurrence.parquet/")
+    
+    if (!is.null(scientificname) & !is.null(taxonid)) {
+      cli::cli_warn("Only one of `scientificname` or `taxonid` should be supplied. Using `taxonid` instead")
+      scientificname <- NULL
+    }
+    
+    # Species names
+    if (!is.null(scientificname)) {
+      # Check if user supplied scientific names or the taxon keys for GBIF
+      if (!is.numeric(scientificname)) {
+        scientificname <- rgbif::name_backbone_checklist(scientificname)
+        if (nrow(scientificname) < 1) {
+          stop("No match was found for the supplied name")
+        }
+        tkey <- scientificname$usageKey
+      } else {
+        tkey <- scientificname
+      }
+    }
+    
+    # Species names from AphiaID
+    if (!is.null(taxonid)) {
+      if (verbose) cli::cli_alert_info("Obtaining names from WoRMS")
+      
+      sp_names <- worrms::wm_id2name(taxonid)
+      
+      sp_names <- rgbif::name_backbone_checklist(sp_names)
+      
+      tkey <- sp_names$usageKey
+    }
+    
+    # Start date
+    if (!is.null(startdate)) {
+      if (nchar(startdate) > 4) {
+        startdate <- format(as.Date(startdate), "%Y-%m-%d")
+      }
+    }
+    
+    # End date
+    if (!is.null(enddate)) {
+      if (nchar(enddate) > 4) {
+        enddate <- format(as.Date(enddate), "%Y-%m-%d")
+      }
+    }
+    
+    if (backend == "arrow") {
+      
+      if (verbose) cli::cli_alert_info("Downloading through arrow backend.")
+      
+      export_path <- paste0(export_path, "/occurrence_gbif_", format(Sys.Date(), "%Y%m%d"), ".", format)
+      
+      ds <- arrow::open_dataset(bucket_add)
+      
+      ds <- ds %>%
+        select(-identifiedby, -recordedby, -typestatus, -mediatype, -issue)
+      
+      if (!is.null(scientificname) | !is.null(taxonid)) {
+        ds <- ds %>%
+          filter(taxonkey %in% tkey)
+      } 
+      if (!is.null(startdate)) {
+        ds <- ds %>%
+          filter(year >= lubridate::year(startdate))
+      }
+      if (!is.null(enddate)) {
+        ds <- ds %>%
+          filter(year <= lubridate::year(enddate))
+      }
+      
+      ds %>%
+        arrow::write_parquet(sink = export_path)
+      
+    } else if (backend == "duckdb") {
+      
+      if (verbose) cli::cli_alert_info("Downloading through DuckDB backend.")
+      
+      require(DBI)
+      require(duckdb)
+      
+      con <- dbConnect(duckdb())
+      dbSendQuery(con, "install httpfs; load httpfs;")
+      
+      query_call <- "where "
+      
+      if (!is.null(scientificname) | !is.null(taxonid)) {
+        query_call <- paste0(query_call, "taxonkey in (", paste0(tkey, collapse = ", "), ")")
+        if (!is.null(startdate) | !is.null(enddate)) {
+          query_call <- paste0(query_call, " and ")
+        }
+      } 
+      if (!is.null(startdate) & !is.null(enddate)) {
+        query_call <- paste0(query_call, "year >= ", lubridate::year(startdate), " and year <= ", lubridate::year(enddate))
+      } else if (!is.null(startdate)) {
+        query_call <- paste0(query_call, "year >= ", lubridate::year(startdate))
+      } else if (!is.null(enddate)) {
+        query_call <- paste0(query_call, "year <= ", lubridate::year(enddate))
+      }
+      
+      dbSendQuery(con, glue::glue(
+        "
+        copy (
+          select * exclude (mediatype, issue, identifiedby, recordedby, typestatus)
+          from read_parquet('{bucket_add}*')
+          {query_call}
+        ) to '{export_path}' (format {format}, partition_by ('order'), overwrite_or_ignore)
+       "
+      ))
+      
+      DBI::dbDisconnect(con)
+      
+    } else {
+      stop("backend not recognized - should be one of 'parquet' or 'duckdb'")
+    }
+    
+    if (verbose) cli::cli_alert_success("File downloaded and available at {.path {export_path}}")
+    
+    return(export_path)
+    
+  } else {
+    
+    if (verbose) cli::cli_alert_info("Downloading full GBIF export (aws).")
+    
+    fs::dir_create(paste0(export_path, "/occurrence/"))
+    
+    if (is.null(version)) {
+      version <- gbifdb::gbif_version()
+    }
+    if (is.null(bucket)) {
+      bucket <- gbifdb:::gbif_default_bucket()
+    }
+    
+    download_data <- function() {
+      gbifdb::gbif_download(
+        version = version, 
+        dir = export_path,
+        bucket = bucket
+      )
+    }
+    
+    base_url <- Sys.getenv("AWS_S3_ENDPOINT", "s3.amazonaws.com")
+    if (getOption("gbif_unset_aws", TRUE)) gbifdb:::unset_aws_env()
+    minioclient::mc_alias_set("aws", base_url, "", "")
+    estimated_total <- minioclient::mc_du(paste0("aws/", bucket, "/occurrence/", version, "/occurrence.parquet/"))
+    estimated_total <- as.numeric(gsub("GiB*.*", "", estimated_total$stdout))
+    
+    if (verbose) cli::cli_alert_warning("Estimated size of the file: {estimated_total}G. Abort if you think there will be no space.")
+    
+    check_folder_size <- function(folder_path) {
+      folder_size <- fs::dir_info(folder_path, recurse = T)
+      folder_size <- dplyr::filter(folder_size, type == "file")
+      folder_size <- dplyr::summarize(folder_size, size = sum(size))
+      folder_size$size
+    }
+    
+    future::plan(future::multisession)
+    download_future <- future::future(download_data())
+    
+    tstart <- Sys.time()
+    if (verbose) cli::cli_progress_bar(format = 
+        "{cli::pb_spin} Downloading GBIF full export. {as.character(folder_size)} out of {estimated_total}G. ETA: {eta}")
+    while (!future::resolved(download_future)) {
+      folder_size <- check_folder_size(paste0(export_path, "/occurrence/"))
+      
+      remaining <- fs::as_fs_bytes(paste0(estimated_total, "G")) - folder_size
+      elapsed_time <- as.numeric(difftime(Sys.time(), tstart, units = "mins"))
+      download_speed_mb_per_min <- folder_size / elapsed_time
+      
+      eta <- remaining / download_speed_mb_per_min
+      
+      tdif <- tstart - Sys.time()
+      
+      eta <- ifelse(eta <= 60, paste(round(eta, 1), "minutes"), paste(round(eta/60, 1), "hours"))
+      
+      Sys.sleep(2)
+      if (verbose) cli::cli_progress_update()
+    }
+    
+    if (verbose) cli::cli_progress_update(force = T)
+    if (verbose) cli::cli_progress_done()
+    
+    if (verbose) cli::cli_alert_success("File downloaded and available at {.path {paste0(export_path, '/occurrence/')}}")
+    
+    return(paste0(export_path, "/occurrence/", version, "/occurrence.parquet/"))
+  }
+  
 }

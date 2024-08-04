@@ -17,6 +17,8 @@
 #'   files
 #' @param keep_raw wether or not should the folder with raw files be kept
 #'   (recommended is FALSE to save space)
+#' @param average_time if \code{TRUE} and multiple time steps are available, then
+#'   those are averaged and only the average (single layer) is saved
 #' @param verbose print messages to track download
 #' 
 #' @return saved files
@@ -27,7 +29,7 @@
 #' To see all available options, visit:
 #' https://erddap.bio-oracle.org/erddap/griddap/index.html?page=1&itemsPerPage=1000
 #' 
-#' This function is basically a wrapper around the download_layers function of the
+#' This function is basically a wrapper around the [biooracler::download_layers] function of the
 #' biooracler package which is still not on CRAN (soon will be), but will save
 #' all files according to the project standard.
 #' If you run the function and does not have biooracler installed, the function will print an
@@ -48,6 +50,9 @@
 #' Datasets names should be the same one got from the ERDDAP list (see link above).
 #' If a variable is not available for a period/depth but is for others, just supply it and the function will trow an error for those that it's unable to download but keep with the others.
 #' See examples for details on how to set up the function.
+#' 
+#' In case you download multiple time steps, it is possible to average the time steps
+#' by setting `average_time = TRUE`
 #' 
 #' Note: in the special cases that a dataset have "mean" in its name (e.g. PAR_mean), it will be renamed
 #' and the _mean suppressed to avoid problems with other functions.
@@ -112,6 +117,7 @@ get_env_data <- function(datasets = NULL,
                          outdir = "data/env/",
                          skip_exist = TRUE,
                          keep_raw = FALSE,
+                         average_time = FALSE,
                          verbose = TRUE) {
   
   is_installed <- try(find.package("biooracler"), silent = TRUE)
@@ -124,6 +130,7 @@ get_env_data <- function(datasets = NULL,
   }
   
   # Define out directory
+  outdir <- paste0(outdir, "/")
   rawdir <- paste0(outdir, "raw/env_layers")
   fs::dir_create(rawdir)
   fs::dir_create(paste0(outdir, c("current", paste0("future/", future_scenarios), "terrain")))
@@ -186,6 +193,12 @@ get_env_data <- function(datasets = NULL,
               
               # If download succeed, save
               if (!assertthat::is.error(var)) {
+                if (terra::nlyr(var) > 1 & average_time) {
+                  nor <- names(var)[1]
+                  nor <- gsub("_[[:digit:]]*$", "", nor)
+                  var <- terra::mean(var)
+                  names(var) <- nor
+                }
                 terra::writeRaster(var, outfile, overwrite = T);rm(var)
               } else {
                 if (verbose) cli::cli_progress_done(result = "failed")
@@ -230,6 +243,12 @@ get_env_data <- function(datasets = NULL,
                 
                 # If download succeed, save
                 if (!assertthat::is.error(var)) {
+                  if (terra::nlyr(var) > 1 & average_time) {
+                    nor <- names(var)[1]
+                    nor <- gsub("_[[:digit:]]*$", "", nor)
+                    var <- terra::mean(var)
+                    names(var) <- nor
+                  }
                   terra::writeRaster(var, outfile, overwrite = T);rm(var)
                 } else {
                   if (verbose) cli::cli_progress_done(result = "failed")

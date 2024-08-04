@@ -13,13 +13,15 @@ occurrence_gbif(
   enddepth = NULL,
   geometry = NULL,
   absence = NULL,
+  exclude = NULL,
+  mode = "search",
   username = NULL,
   password = NULL,
-  exclude = NULL,
   format = NULL,
   wait = TRUE,
   raw_path = NULL,
   import = TRUE,
+  cell_resolution = NULL,
   verbose = FALSE
 )
 }
@@ -49,16 +51,24 @@ download will fail - see \code{\link[rgbif:occ_download]{rgbif::occ_download()}}
 \item{absence}{only include absence records (\code{TRUE}), exclude absence
 records (\code{NULL}) or include absence records (\code{include}).}
 
+\item{exclude}{if \code{NULL} include all types of specimens. Alternatively,
+you can pass a vector of types of specimen to exclude (e.g. supplying
+\code{c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")} will exclude fossils and
+living specimens).}
+
+\item{mode}{one of \code{search}, \code{cell} or \code{download}. Search will
+use the \code{\link[rgbif:occ_search]{rgbif::occ_search()}} function, and have a limit of 200.000
+records. It is a good approach to fast results, but in general
+\code{download} should be used (see details). Mode \code{cell} uses the
+GBIF mapper API through the package \link{speedy} and returns cell records
+aggregated in a certain resolution. At this moment only \code{download} is
+available.}
+
 \item{username}{the GBIF username, if not stored on the R environment (see
 details).}
 
 \item{password}{the GBIF password, if not stored on the R environment (see
 details).}
-
-\item{exclude}{if \code{NULL} include all types of specimens. Alternatively,
-you can pass a vector of types of specimen to exclude (e.g. supplying
-\code{c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")} will exclude fossils and
-living specimens).}
 
 \item{format}{format to download. One of \code{"SIMPLE_CSV"} or
 \code{"SIMPLE_PARQUET"}. If \code{NULL} (default), then a simple CSV is
@@ -80,6 +90,8 @@ folder.
 folder is used. Ignored if \code{wait} is \code{FALSE}.}
 
 \item{import}{if \code{TRUE}, the data is imported as a data frame.}
+
+\item{cell_resolution}{if \code{mode = "cell"}, which resolution to use.}
 
 \item{verbose}{if \code{TRUE} messages are printed.}
 }
