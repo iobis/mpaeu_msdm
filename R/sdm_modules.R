@@ -112,7 +112,8 @@ sdm_options <- function(sdm_method = NULL) {
     ),
     # RF
     rf = list(
-      n_trees = c(500, 750, 1000),
+      n_trees = 500,
+      mtry = c("default", "double", "total"),
       method = "classification",
       type = "down-sampled"
     ),
@@ -943,6 +944,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   n_trees <- options[["n_trees"]]
   method <- options[["method"]]
   type <- options[["type"]]
+  mtry <- options[["mtry"]]
   
   # Separate data
   p <- sdm_data$training$presence
@@ -953,10 +955,41 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     dat$presence <- as.factor(dat$presence)
   }
   
+  # Check mtry
+  if (any(mtry != "default")) {
+    preds <- (ncol(dat) - 1)
+    mtry <- unlist(lapply(mtry, function(x){
+      if (method == "classification") {
+        switch(x,
+               default = floor(sqrt(preds)),
+               double = floor(sqrt(preds)) * 2,
+               total = preds
+        )
+      } else {
+        switch(x,
+               default = max(floor(ncol(preds)/3), 1),
+               double = max(floor(ncol(preds)/3), 1) * 2,
+               total = preds
+        )
+      }
+    }))
+    if (any(mtry > preds)) {
+      mtry <- mtry[-which(mtry > preds)]
+    }
+  } else {
+    preds <- (ncol(dat) - 1)
+    if (method == "classification") {
+      mtry <- floor(sqrt(preds))
+    } else {
+      mtry <- max(floor(ncol(preds)/3), 1)
+    }
+  }
+  
   # Tune model
   # Create grid for tuning
   tune_grid <- expand.grid(
     n_trees = n_trees,
+    mtry = mtry,
     stringsAsFactors = FALSE
   )
   
@@ -973,6 +1006,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     
     tune_block <- .rf_cv(p, dat, b_index,
                          ntrees = tune_grid$n_trees[k],
+                         mtry = tune_grid$mtry[k],
                          type = type,
                          method = method)
     
@@ -998,7 +1032,8 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   
   full_fit <- randomForest::randomForest(formula = presence ~ .,
                                          data = dat,
-                                         ntree = best_tune, 
+                                         ntree = best_tune$n_trees, 
+                                         mtry = best_tune$mtry,
                                          sampsize = smpsize,
                                          replace = TRUE)
   
@@ -1025,7 +1060,8 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     timings = timings,
     cv_method = tune_blocks,
     parameters = list(
-      n_trees = best_tune,
+      n_trees = best_tune$n_trees,
+      mtry = best_tune$mtry,
       method = method,
       type = type
     ),
@@ -1067,7 +1103,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 #' @export
-.rf_cv <- function(p, dat, blocks, ntrees, type, method){
+.rf_cv <- function(p, dat, blocks, ntrees, mtry, type, method){
   
   blocks_results <- lapply(1:length(unique(blocks)), function(id){
     
@@ -1085,6 +1121,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     mfit <- randomForest::randomForest(formula = presence ~ .,
                                        data = train_dat,
                                        ntree = ntrees, 
+                                       mtry = mtry,
                                        sampsize = smpsize,
                                        replace = TRUE)
     
