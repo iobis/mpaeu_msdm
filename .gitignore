@@ -53,3 +53,4 @@ rsconnect/
 drafts/
 
 _test/
+.DS_Store

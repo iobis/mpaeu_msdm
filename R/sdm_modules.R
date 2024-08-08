@@ -129,7 +129,8 @@ sdm_options <- function(sdm_method = NULL) {
       method = "naive",
       total_area = NULL,
       weight_resp = TRUE,
-      k_val = c(5, 10)
+      k_val = c(5, 10),
+      select = c(FALSE, TRUE)
     ),
     # XGBoost
     xgboost = list(
@@ -1359,6 +1360,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   weight_resp <- options[["weight_resp"]]
   k_val <- options[["k_val"]]
   total_area <- options[["total_area"]]
+  select <- options[["select"]]
   
   # Separate data
   p <- sdm_data$training$presence
@@ -1403,6 +1405,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   # Create grid for tuning
   tune_grid <- expand.grid(
     k_val = k_val,
+    select = select,
     stringsAsFactors = FALSE
   )
   
@@ -1427,7 +1430,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     tune_block <- .gam_cv(p, dat, b_index,
                           forms = tune_forms,
                           wt = wt, family = fam,
-                          to_norm = to_norm)
+                          to_norm = to_norm,
+                          select = tune_grid$select[k])
     
     cv_results[[k]] <- as.data.frame(tune_block)
     
@@ -1446,7 +1450,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   
   forms <- as.formula(
     paste("presence ~", paste(
-      "s(", var_names, ", k=", best_tune, ", bs='cr')",
+      "s(", var_names, ", k=", best_tune$k_val, ", bs='cr')",
       collapse = "+"
     ))
   )
@@ -1454,7 +1458,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   full_fit <- mgcv::bam(forms, family = fam,
                         data = dat,
                         weights = wt,
-                        method = "fREML")
+                        method = "fREML",
+                        select = best_tune$select)
   
   pred_full <- predict(full_fit, dat, type = "response")
   
@@ -1475,7 +1480,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     cv_method = tune_blocks,
     parameters = list(weight_resp = weight_resp,
                       total_area = total_area,
-                      k_val = best_tune,
+                      k_val = best_tune$k_val,
+                      select = best_tune$select,
                       method = method),
     cv_metrics = cv_results[[which.max(tune_test)[1]]],
     full_metrics = metrics_full,
@@ -1512,7 +1518,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 #' @export
-.gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm){
+.gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm, select){
   
   blocks_results <- lapply(1:length(unique(blocks)), function(id){
     
@@ -1530,7 +1536,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     
     mfit <- mgcv::bam(forms, family = family, data = train_dat,
                       weights = nwt,
-                      method = "fREML")
+                      method = "fREML",
+                      select = select)
     
     pred <- predict(mfit, test_dat, type = "response")
     
