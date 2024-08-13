@@ -305,6 +305,7 @@ occurrence_gbif <- function(scientificname = NULL,
 #' @param version the version of the full export to use (see: https://registry.opendata.aws/gbif/). 
 #'   If `NULL`, the latest one is used
 #' @param bucket which bucket to use. If `NULL` the default bucket is used (see [gbifdb::gbif_remote()])
+#' @param safe if `TRUE` it reduces the memory limit of DuckDB. Only necessary if you are having troubles with the function.
 #' @param verbose if \code{TRUE} messages are printed.
 #' 
 #' @return path to saved file (and files saved)
@@ -335,6 +336,7 @@ occurrence_gbif_db <- function(full_mode = TRUE,
                                backend = "duckdb",
                                version = NULL,
                                bucket = NULL,
+                               safe = FALSE,
                                verbose = FALSE) {
   
   fs::dir_create(export_path)
@@ -450,6 +452,13 @@ occurrence_gbif_db <- function(full_mode = TRUE,
       con <- dbConnect(duckdb())
       dbSendQuery(con, "install httpfs; load httpfs;")
       
+      if (safe) {
+        av <- ceiling(as.numeric(future::availableCores())/2)
+        dbSendQuery(con, "SET preserve_insertion_order = false;")
+        dbSendQuery(con, "SET memory_limit = '3GB'")
+        dbSendQuery(con, paste0("SET threads TO ", av))
+      }
+      
       query_call <- "where "
       
       if (!is.null(scientificname) | !is.null(taxonid)) {
@@ -522,7 +531,7 @@ occurrence_gbif_db <- function(full_mode = TRUE,
       folder_size$size
     }
     
-    future::plan(future::multisession)
+    future::plan(future::multisession(workers = 1))
     download_future <- future::future(download_data())
     
     tstart <- Sys.time()

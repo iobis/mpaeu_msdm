@@ -262,6 +262,7 @@ gen_log <- function(algos){
     model_posteval = eval(parse(text = paste0(
       "list(", paste0(c(algos, "ensemble", "niche", "hyperniche"), "=", "NULL", collapse = ","), ")"
     ))),
+    other_details = NULL,
     timings = NULL,
     obissdm_version = as.character(packageVersion("obissdm"))
   )

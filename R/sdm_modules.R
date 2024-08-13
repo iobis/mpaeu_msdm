@@ -150,6 +150,11 @@ sdm_options <- function(sdm_method = NULL) {
       feature_fraction = 1, #c(0.8) # controls the fraction of features to consider for each tree, can reduce overfit
       bagging_fraction = 1,#c(0.8) # fraction of data to be used for each iteration, reduces overfit
       early_stopping_round = 0 # number of rounds after which the training will stop if there's no improvement in the validation metric
+    ),
+    # ESM
+    esm = list(
+      features = "lq",
+      remult = seq(2, 3, 1)
     )
   )
   
@@ -946,6 +951,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   method <- options[["method"]]
   type <- options[["type"]]
   mtry <- options[["mtry"]]
+  mtry_names <- mtry
   
   # Separate data
   p <- sdm_data$training$presence
@@ -1062,7 +1068,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     cv_method = tune_blocks,
     parameters = list(
       n_trees = best_tune$n_trees,
-      mtry = best_tune$mtry,
+      mtry = mtry_names[which(mtry == best_tune$mtry)],
       method = method,
       type = type
     ),
@@ -1987,3 +1993,136 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 
+#' Fit Ensemble of Small Models using maxnet
+#'
+#' @param sdm_data `sdm_dat` object containing occurrences and environmental data
+#' @param options list with options from [sdm_options()] to override the default
+#' @param verbose if `TRUE` display messages
+#' @param tune_blocks which blocks to use for cross-validation
+#' @param metric which metric to optimize in tuning using cross-validation
+#'
+#' @return fitted model (`sdm_result` object)
+#' @export
+#' 
+#' @references Breiner, F. T., Nobis, M. P., Bergamini, A., & Guisan, A. (2018). 
+#' Optimizing ensembles of small models for predicting the distribution of species 
+#' with few occurrences. In N. Isaac (Ed.), Methods in Ecology and Evolution 
+#' (Vol. 9, Issue 4, pp. 802–808). Wiley. https://doi.org/10.1111/2041-210x.12957
+#'
+#' @examples
+#' \dontrun{
+#' sdm_species <- sdm_module_esm(sp_data)
+#' }
+sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
+                              tune_blocks = "spatial_grid", metric = "cbi") {
+  
+  # Checkings
+  .check_type(sdm_data)
+  .cat_sdm(verbose, "Preparing data")
+  timings <- .get_time()
+  
+  # Get options
+  if (is.null(options)) {
+    options <- sdm_options("esm")
+  }
+  
+  features <- options[["features"]]
+  remult <- options[["remult"]]
+  
+  # Separate data
+  p <- sdm_data$training$presence
+  dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
+  
+  # Tune model
+  # Create grid for tuning
+  tune_grid <- expand.grid(
+    remult = remult,
+    features = features,
+    stringsAsFactors = FALSE
+  )
+  
+  .cat_sdm(verbose, "Tuning model")
+  
+  tune_test <- rep(NA, nrow(tune_grid))
+  cv_results <- list()
+  
+  for (k in 1:nrow(tune_grid)) {
+    
+    .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
+    
+    b_index <- sdm_data$blocks$folds[[tune_blocks]]
+    
+    tune_block <- .maxent_cv(p, dat, b_index,
+                             features = tune_grid$features[k],
+                             regmult = tune_grid$remult[k])
+    
+    cv_results[[k]] <- as.data.frame(tune_block)
+    
+    tune_block <- apply(tune_block, 2, mean, na.rm = T)
+    
+    tune_test[k] <- tune_block[metric]
+  }
+  
+  # Get best tune
+  best_tune <- tune_grid[which.max(tune_test)[1],]
+  
+  timings <- .get_time(timings, "tuning")
+  
+  # Fit full model
+  .cat_sdm(verbose, "Training and evaluating final model")
+  
+  full_fit <- maxnet::maxnet(p = p,
+                             data = dat,
+                             f = maxnet::maxnet.formula(p = p,
+                                                        data = dat,
+                                                        classes = best_tune$features),
+                             regmult = best_tune$remult,
+                             addsamplestobackground = T) # Change to F
+  
+  pred_full <- predict(full_fit, dat, type = "cloglog")
+  
+  metrics_full <- eval_metrics(p, pred_full)
+  
+  timings <- .get_time(timings, "evaluate final")
+  
+  # Prepare returning object
+  result <- list(
+    name = "maxent",
+    model = full_fit,
+    variables = colnames(dat),
+    n_pts = c(presence = sum(p),
+              background = (length(p) - sum(p))),
+    timings = timings,
+    cv_method = tune_blocks,
+    parameters = best_tune,
+    cv_metrics = cv_results[[which.max(tune_test)[1]]],
+    full_metrics = metrics_full,
+    eval_metrics = NULL
+  )
+  
+  
+  # If evaluation dataset is available, evaluate
+  if (!is.null(sdm_data$eval_data)) {
+    
+    # Separate data
+    p_eval <- sdm_data$eval_data$presence
+    dat_eval <- sdm_data$eval_data[, !colnames(sdm_data$eval_data) %in% "presence"]
+    
+    # Predict
+    pred_eval <- predict(full_fit, dat_eval, type = "cloglog")
+    
+    metrics_eval <- eval_metrics(p_eval, pred_eval)
+    
+    result$eval_metrics <- metrics_eval
+    
+    result$timings <- .get_time(result$timings, "evaluation dataset")
+    
+  }
+  
+  .cat_sdm(verbose, "Maxent model concluded", bg = T)
+  
+  class(result) <- c("sdm_result", class(result))
+  
+  return(result)
+  
+}
