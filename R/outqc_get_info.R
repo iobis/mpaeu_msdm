@@ -414,6 +414,97 @@ geotiff_to_zarr(input_folder, output_path)
 
 
 
+#' Convert QC distances to RDS format
+#'
+#' @param distfolder the folder where the distances, calculated using [outqc_get_distances()], were saved
+#' @param do_parallel if `TRUE` run in parallel using [furrr::future_map()]
+#' @param parallel_cores number of cores to use for parallel processing. If `NULL` uses half of available cores
+#' @param remove_distances if \code{TRUE}, after converting to RDS the calculated distances are deleted,
+#' and only the RDS folder is kept
+#'
+#' @return saved RDS files
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' outqc_dist_tords("distances")
+#' }
+outqc_dist_tords <- function(distfolder,
+                             do_parallel = TRUE,
+                             parallel_cores = NULL,
+                             remove_distances = TRUE) {
+  
+  cli::cli_alert_info("Converting {.path {distfolder}} to RDS.")
+  
+  # Check if folder exist and have files
+  if (!file.exists(distfolder) & length(list.files(distfolder)) < 1) {
+    stop("Folder does not exist or does not have any file.")
+  }
+  
+  # Save one that will be used as model
+  files <- list.files(distfolder, full.names = T, pattern = "\\.tif")
+  # Just to ensure that a file with valid points is used
+  nr <- 0
+  st <- 1
+  while (nr < 1000) {
+    r <- terra::rast(files[st])
+    nr <- nrow(terra::as.data.frame(r))
+    st <- st + 1
+  }
+  
+  outfolder <- paste0(distfolder, "/", "distances.rds")
+  fs::dir_create(outfolder)
+  
+  terra::writeRaster(r, paste0(outfolder, "/basedistances.tif"), overwrite = T)
+  
+  to_rds <- function(tf) {
+    tf_r <- terra::rast(tf)
+    tf_d <- terra::as.data.frame(tf_r, cell = T, na.rm = F)
+    tf_d <- tf_d[order(tf_d$cell),]
+    tf_v <- tf_d[,2]
+    outn <- basename(tf)
+    saveRDS(tf_v, file.path(outfolder, gsub(".tif", ".rds", outn)))
+    return(invisible(NULL))
+  }
+  
+  if (do_parallel) {
+    require(future)
+    require(furrr)
+    
+    if (is.null(parallel_cores)) {
+      parallel_cores <- ceiling(availableCores()/2)
+    }
+    
+    plan(multisession, workers = parallel_cores)
+    si <- furrr::future_map(files, to_rds, .progress = T)
+    plan(sequential)
+  } else {
+    for (i in cli::cli_progress_along(files)) {
+      to_rds(files[i])
+    }
+  }
+  
+  available_cells <- basename(files)
+  available_cells <- as.numeric(gsub("cell_", "", gsub("\\.tif", "", available_cells)))
+  write.table(data.frame(cells = available_cells), 
+              paste0(outfolder, "/availabledistances.txt"),
+              row.names = F)
+  
+  if (remove_distances & file.exists(outfolder)) {
+    cli::cli_alert_info("Removing {.var .tif} files")
+    rm(r)
+    file.remove(files)
+  }
+  
+  cli::cli_alert_success("RDS files saved at {.path {outfolder}}")
+  
+  return(invisible(NULL))
+  
+}
+
+
+
+
 #' Query the distance from points and k neighbours
 #'
 #' @param pts the points to be queried
@@ -422,8 +513,10 @@ geotiff_to_zarr(input_folder, output_path)
 #' then you should also set it as \code{TRUE} here. Otherwise, the function will not be
 #' able to find the valid cells that were computed.
 #' @param distfolder the folder holding the distance layers produced with [outqc_get_distances()]
-#' @param mode one of \code{zarr}, \code{xarray} or \code{tif}. Default is \code{zarr} which assumes that
-#' after running [outqc_get_distances()], the function [outqc_dist_tozarr()] was used.
+#' @param mode one of \code{rds}, \code{zarr}, \code{xarray} or \code{tif}.
+#' Default is \code{zarr} which assumes that after running [outqc_get_distances()],
+#' the function [outqc_dist_tords()] was used. It is recommended to use mode `rds` which
+#' is less memory and time consuming
 #' @param returnid if \code{TRUE} returns the ID
 #' 
 #' @description
@@ -434,8 +527,7 @@ geotiff_to_zarr(input_folder, output_path)
 #' then it's possible that some non-valid (empty) cells were omited. In that case
 #' the function will return NA for those records.
 #' 
-#' Note: for \code{mode = "zarr"}, which is the current default, you need to have 
-#' the `Rarr` package installed (through Bioconductor).
+#' Note: for \code{mode = "zarr"}, you need to have the `Rarr` package installed (through Bioconductor).
 #' 
 #' For mode \code{"xarray"}, you need Python and the [reticulate] package installed 
 #' and the `xarray` Python package. This mode is memory intensive and is not (always)
@@ -454,7 +546,7 @@ outqc_query_distances <- function(pts,
                                   kdist = NULL,
                                   try_closest = TRUE,
                                   distfolder = "distances",
-                                  mode = "zarr",
+                                  mode = "rds",
                                   returnid = TRUE) {
   
   if (is.null(kdist)) {
@@ -473,6 +565,8 @@ outqc_query_distances <- function(pts,
   
   if (mode == "tif") {
     base <- terra::rast(list.files(distfolder, pattern = ".tif", full.names = T)[1])
+  } else if (mode == "rds") {
+    base <- terra::rast(paste0(distfolder, "/distances.rds/basedistances.tif"))
   } else {
     base <- terra::rast(paste0(distfolder, "/distances.zarr/basedistances.tif"))
   }
@@ -675,11 +769,13 @@ outqc_query_distances <- function(pts,
     cell_cols <- terra::colFromCell(base, cell_to_do)
     cell_rows <- terra::rowFromCell(base, cell_to_do)
     
-    get_time <- function(cell) {
-      which(exist_cells == cell)
-    }
+    # get_time <- function(cell) {
+    #   which(exist_cells == cell)
+    # }
+    # 
+    # time_as_cell <- unlist(lapply(cell_to_do, get_time))
     
-    time_as_cell <- unlist(lapply(cell_to_do, get_time))
+    time_as_cell <- match(cell_to_do, exist_cells)
     
     extract_fz_info <- function(rows, cols) {
       min_r <- min(rows)
@@ -690,8 +786,8 @@ outqc_query_distances <- function(pts,
       max_c <- max(cols)
       c_seq <- min_c:max_c
       
-      rows_eq <- unlist(lapply(rows, function(x) which(r_seq == x)))
-      cols_eq <- unlist(lapply(cols, function(x) which(c_seq == x)))
+      rows_eq <- match(rows, r_seq)
+      cols_eq <- match(cols, c_seq)
       
       list(r_seq = r_seq, c_seq = c_seq,
            req = rows_eq, ceq = cols_eq)
@@ -702,16 +798,16 @@ outqc_query_distances <- function(pts,
     
     extract_from_zarr <- function(fz_info, t_index, kdist, data_zarr_path) {
       
-      t_index_sp <- split(seq_along(t_index), ceiling(seq_along(t_index)/2000))
+      t_index_sp <- split(seq_along(t_index), ceiling(seq_along(t_index)/1000))
+      
+      extract_values <- function(slice, rows, cols, kdist) {
+        sv <- slice[cbind(rows, cols)]
+        return(sv[order(sv)][2:(kdist+1)])
+      }
       
       zar_vf <- lapply(t_index_sp, function(ti){
         index <- list(t_index[ti], fz_info$r_seq, fz_info$c_seq)
         zar <- read_zarr_array(data_zarr_path, index = index)
-        
-        extract_values <- function(slice, rows, cols, kdist) {
-          sv <- slice[cbind(rows, cols)]
-          return(sv[order(sv)][2:(kdist+1)])
-        }
         
         zar_v <- apply(zar, 1, extract_values,
                        rows = fz_info$req, cols = fz_info$ceq, kdist = kdist)
@@ -730,6 +826,65 @@ outqc_query_distances <- function(pts,
                                     z_data$path)
     all_values <- t(all_values)
     
+    all_values <- cbind(cell_new = cell_to_do, all_values)
+    
+    all_values <- dplyr::left_join(cell_equiv, as.data.frame(all_values), by = "cell_new")
+    names(all_values)[1] <- "cell"
+    
+    # Join with the initial points list
+    final_values <- dplyr::left_join(pts, all_values, by = "cell")
+    
+  } else if (mode == "rds") {
+    
+    # Retrieve existing cells
+    exist_cells <- read.table(file.path(distfolder,
+                                        "distances.rds",
+                                        "availabledistances.txt"), header = T)
+    exist_cells <- exist_cells[,1]
+    
+    # Check if all are valid
+    cell_list <- cells_index
+    
+    cell_list_inv <- cell_list[!cell_list %in% exist_cells]
+    
+    # Check for closest or remove
+    if (length(cell_list_inv) > 0 & try_closest) {
+      
+      to_valid <- terra::adjacent(base, cell_list_inv, directions = 8)
+      
+      to_valid <- unname(apply(to_valid, 1, function(x) {
+        x_val <- x %in% exist_cells
+        if (any(x_val)) {
+          x <- x[x_val]
+          x[1]
+        } else {
+          NA
+        }
+      }))
+      
+      cell_list[!cell_list %in% exist_cells] <- to_valid
+      
+    } else {
+      cell_list[!cell_list %in% exist_cells] <- NA
+    }
+    
+    cell_equiv <- data.frame(cell_orig = cells_index, cell_new = cell_list)
+    
+    cell_to_do <- na.omit(unique(cell_list))
+    
+    read_and_extract <- function(target, cells, kdist) {
+      values <- readRDS(file.path(distfolder, "distances.rds", paste0("cell_", target, ".rds")))
+      sv <- values[cells]
+      sv[order(sv)][2:(kdist+1)]
+    }
+    
+    all_values <- matrix(nrow = length(cell_to_do), ncol = kdist)
+    
+    for (kl in 1:length(cell_to_do)) {
+      all_values[kl,] <- read_and_extract(cell_to_do[kl], cell_to_do, kdist)
+    }
+    
+    all_values <- as.data.frame(all_values)
     all_values <- cbind(cell_new = cell_to_do, all_values)
     
     all_values <- dplyr::left_join(cell_equiv, as.data.frame(all_values), by = "cell_new")

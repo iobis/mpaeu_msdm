@@ -37,6 +37,8 @@ Imports:
     fs,
     yaml,
     ecodist,
-    spThin
+    spThin,
+    future,
+    furrr
 Suggests:
     ggplot2
