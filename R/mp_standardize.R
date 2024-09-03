@@ -433,7 +433,11 @@ mp_standardize <- function(species,
             if (all(is.na(adj_values[,1]))) {
               ret_df <- data.frame(cell = NA, x = NA, y = NA)
             } else {
-              sel_cel <- sample(which(!is.na(adj_values[,1])), 1)
+              if (length(which(!is.na(adj_values[,1]))) == 1) {
+                sel_cel <- which(!is.na(adj_values[,1]))
+              } else {
+                sel_cel <- sample(which(!is.na(adj_values[,1])), 1)
+              }
               sel_cel <- as.vector(adj_cells)[sel_cel]
               sel_crds <- terra::xyFromCell(sdm_base, sel_cel)
               ret_df <- data.frame(cell = sel_cel, x = sel_crds[1,1], y = sel_crds[1,2])
@@ -694,7 +698,7 @@ mp_standardize <- function(species,
       if (add_fao) {
         if (reader == "polars") {
           fao_areas <- pl$scan_parquet(fao_areas)
-        } else if (reader == "arrow") {
+        } else {
           fao_areas <- arrow::open_dataset(fao_areas)
         }
         
@@ -712,7 +716,7 @@ mp_standardize <- function(species,
             fao_areas_sp <- fao_areas$filter(pl$col("SpecCode") == sp_sbase$SpecCode[1])$
               collect()
             fao_areas_sp <- fao_areas_sp$to_data_frame()
-          } else if (reader == "arrow") {
+          } else {
             fao_areas_sp <- fao_areas %>%
               filter(SpecCode == sp_sbase$SpecCode[1]) %>%
               collect()
