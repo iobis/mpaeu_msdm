@@ -39,6 +39,7 @@ Imports:
     ecodist,
     spThin,
     future,
-    furrr
+    furrr,
+    reticulate
 Suggests:
     ggplot2

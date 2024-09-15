@@ -267,7 +267,7 @@ mp_standardize <- function(species,
       rename(taxonID = AphiaID) %>%
       mutate(day = as.numeric(day),
              month = as.numeric(month),
-             year = as.numeric(year)) %>%
+             year = as.numeric(date_year)) %>%
       filter(year >= min_year)
     
     if (basisrec[1] != "excludenothing") {

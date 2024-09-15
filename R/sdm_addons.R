@@ -686,6 +686,28 @@ print.sdm_mult_result <- function(x) {
   cli::cat_line(cli::col_silver("# You can access the model using `'object'$model`."))
 }
 
+
+# Print the results of a ESM SDM object
+#' @export
+print.sdm_esm_result <- function(x) {
+  
+  x_1 <- x[[1]]
+  
+  cli::cli_h1("ESM models")
+  
+  cli::cat_line()
+  cli::cat_line(glue::glue("Models fitted: {length(x)}"))
+  cli::cat_line(glue::glue("Method used: {x_1$name}"))
+  cli::cat_line(glue::glue("Number of presence records: {x_1$n_pts[[1]]}"))
+  
+  cli::cat_line()
+  cli::cat_line("Result for the first model:")
+  print(x_1)
+  
+  cli::cat_line()
+  cli::cat_line(cli::col_silver("# You can access each model using `'object'[[`model_number`]]`."))
+}
+
 # Summary methods ----
 
 # Print the SDM result returned by the SDM modules

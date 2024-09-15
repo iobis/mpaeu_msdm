@@ -2004,6 +2004,9 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @return fitted model (`sdm_result` object)
 #' @export
 #' 
+#' @note
+#' Avoid using more than 50000 background points for ESM.
+#' 
 #' @references Breiner, F. T., Nobis, M. P., Bergamini, A., & Guisan, A. (2018). 
 #' Optimizing ensembles of small models for predicting the distribution of species 
 #' with few occurrences. In N. Isaac (Ed.), Methods in Ecology and Evolution 
@@ -2029,9 +2032,62 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
   features <- options[["features"]]
   remult <- options[["remult"]]
   
+  base_opt <- sdm_options("maxent")
+  base_opt$features <- features
+  base_opt$remult <- remult
+  
+  names_vars <- names(sdm_data$training)[2:ncol(sdm_data$training)]
+  n_vars <- length(names_vars)
+  
+  models_list <- lapply(1:n_vars, function(x) NULL)
+  
+  for (va in 1:n_vars) {
+    
+    .cat_sdm(verbose, paste("Running ESM variable", va, "out of", n_vars))
+    
+    sdm_data_mod <- sdm_data
+    
+    sdm_data_mod$training <- sdm_data_mod$training[,c("presence", names_vars[va])]
+    
+    models_list[[va]] <- .sdm_module_maxent_esm(
+      sdm_data_mod, options = base_opt, verbose = verbose,
+      tune_blocks = tune_blocks, metric = metric
+    )
+    
+  }
+  
+  .cat_sdm(verbose, "ESM model concluded", bg = T)
+  
+  
+  class(models_list) <- c("sdm_esm_result", class(models_list))
+  
+  return(models_list)
+  
+}
+
+#' @export
+.sdm_module_maxent_esm <- function(sdm_data, options = NULL, verbose = TRUE,
+                              tune_blocks = "spatial_grid", metric = "cbi") {
+  
+  # Checkings
+  .check_type(sdm_data)
+  .cat_sdm(verbose, "Preparing data")
+  timings <- .get_time()
+  
+  # Get options
+  if (is.null(options)) {
+    options <- sdm_options("maxent")
+  }
+  
+  features <- options[["features"]]
+  remult <- options[["remult"]]
+  
   # Separate data
   p <- sdm_data$training$presence
+  varname <- colnames(sdm_data$training)[!colnames(sdm_data$training) %in% "presence"]
   dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
+  dat <- as.data.frame(dat)
+  colnames(dat) <- varname
   
   # Tune model
   # Create grid for tuning
@@ -2052,9 +2108,10 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
     
     b_index <- sdm_data$blocks$folds[[tune_blocks]]
     
-    tune_block <- .maxent_cv(p, dat, b_index,
+    tune_block <- .maxent_esm_cv(p, dat, b_index,
                              features = tune_grid$features[k],
-                             regmult = tune_grid$remult[k])
+                             regmult = tune_grid$remult[k],
+                             varname = varname)
     
     cv_results[[k]] <- as.data.frame(tune_block)
     
@@ -2077,7 +2134,7 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
                                                         data = dat,
                                                         classes = best_tune$features),
                              regmult = best_tune$remult,
-                             addsamplestobackground = T) # Change to F
+                             addsamplestobackground = F) # Change to F
   
   pred_full <- predict(full_fit, dat, type = "cloglog")
   
@@ -2124,5 +2181,44 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
   class(result) <- c("sdm_result", class(result))
   
   return(result)
+  
+}
+
+#' @export
+.maxent_esm_cv <- function(p, dat, blocks, features, regmult, varname){
+  
+  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+    
+    test_p <- p[blocks == id]
+    test_dat <- dat[blocks == id,]
+    
+    train_p <- p[blocks != id]
+    train_dat <- dat[blocks != id,]
+    
+    train_dat <- as.data.frame(train_dat)
+    test_dat <- as.data.frame(test_dat)
+    
+    colnames(train_dat) <- colnames(test_dat) <- varname
+    
+    mfit <- try(maxnet::maxnet(p = train_p,
+                               data = train_dat,
+                               f = maxnet::maxnet.formula(p = train_p,
+                                                          data = train_dat,
+                                                          classes = features),
+                               regmult = regmult,
+                               addsamplestobackground = F), # change to F
+                silent = T)
+    
+    if (inherits(mfit, "try-error")) { # Still to be fixed/verified
+      NULL
+    } else {
+      pred <- predict(mfit, test_dat, type = "cloglog")
+      
+      eval_metrics(test_p, pred)
+    }
+    
+  })
+  
+  return(do.call("rbind", blocks_results))
   
 }

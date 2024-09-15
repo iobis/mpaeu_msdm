@@ -2,12 +2,16 @@
 % Please edit documentation in R/sdm_tools.R
 \name{save_log}
 \alias{save_log}
+\alias{view_log}
 \title{Save log object}
 \usage{
 save_log(log_object, file_path)
+
+view_log(log_object)
 }
 \arguments{
-\item{log_object}{log object generated with \code{\link[=gen_log]{gen_log()}}}
+\item{log_object}{log object generated with \code{\link[=gen_log]{gen_log()}}. For \code{\link[=view_log]{view_log()}}
+can also be a path to a json file}
 
 \item{file_path}{the path to save the file in .json format}
 }
@@ -16,6 +20,9 @@ saved file
 }
 \description{
 Save log object
+}
+\details{
+You can quickly visualize the log files using \code{\link[=view_log]{view_log()}}
 }
 \examples{
 \dontrun{
