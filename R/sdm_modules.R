@@ -2029,13 +2029,6 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
     options <- sdm_options("esm")
   }
   
-  features <- options[["features"]]
-  remult <- options[["remult"]]
-  
-  base_opt <- sdm_options("maxent")
-  base_opt$features <- features
-  base_opt$remult <- remult
-  
   names_vars <- names(sdm_data$training)[2:ncol(sdm_data$training)]
   n_vars <- length(names_vars)
   
@@ -2050,7 +2043,7 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
     sdm_data_mod$training <- sdm_data_mod$training[,c("presence", names_vars[va])]
     
     models_list[[va]] <- .sdm_module_maxent_esm(
-      sdm_data_mod, options = base_opt, verbose = verbose,
+      sdm_data_mod, options = options, verbose = verbose,
       tune_blocks = tune_blocks, metric = metric
     )
     
