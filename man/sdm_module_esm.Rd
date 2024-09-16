@@ -9,7 +9,10 @@ sdm_module_esm(
   options = NULL,
   verbose = TRUE,
   tune_blocks = "spatial_grid",
-  metric = "cbi"
+  metric = "cbi",
+  esm_metric = "dsomers",
+  esm_threshold = 0,
+  remove_below = TRUE
 )
 }
 \arguments{
@@ -22,12 +25,25 @@ sdm_module_esm(
 \item{tune_blocks}{which blocks to use for cross-validation}
 
 \item{metric}{which metric to optimize in tuning using cross-validation}
+
+\item{esm_metric}{metric to filter bivariate models. One of "dsomer", which
+follows original article using Somers'D, or "cbi".}
+
+\item{esm_threshold}{value for filtering out models. Default is 0, which for
+Somers'D is equivalent to remove models with AUC < 0.5}
+
+\item{remove_below}{if \code{TRUE} remove models below the \code{esm_threshold}}
 }
 \value{
-fitted model (\code{sdm_result} object)
+list of fitted bivariate models (\code{sdm_esm_result} object, with
+\code{sdm_result} objects). The main object contains an attribute \code{scores} which
+provide easy access to the scores for model weighting.
 }
 \description{
 Fit Ensemble of Small Models using maxnet
+}
+\note{
+Avoid using more than 50000 background points for ESM.
 }
 \examples{
 \dontrun{

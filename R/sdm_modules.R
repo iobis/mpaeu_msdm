@@ -2000,8 +2000,15 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @param verbose if `TRUE` display messages
 #' @param tune_blocks which blocks to use for cross-validation
 #' @param metric which metric to optimize in tuning using cross-validation
+#' @param esm_metric metric to filter bivariate models. One of "dsomer", which 
+#'   follows original article using Somers'D, or "cbi".
+#' @param esm_threshold value for filtering out models. Default is 0, which for
+#'   Somers'D is equivalent to remove models with AUC < 0.5
+#' @param remove_below if `TRUE` remove models below the `esm_threshold`
 #'
-#' @return fitted model (`sdm_result` object)
+#' @return list of fitted bivariate models (`sdm_esm_result` object, with
+#'   `sdm_result` objects). The main object contains an attribute `scores` which
+#'   provide easy access to the scores for model weighting.
 #' @export
 #' 
 #' @note
@@ -2017,7 +2024,9 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
 #' sdm_species <- sdm_module_esm(sp_data)
 #' }
 sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
-                              tune_blocks = "spatial_grid", metric = "cbi") {
+                              tune_blocks = "spatial_grid", metric = "cbi",
+                           esm_metric = "dsomers",
+                           esm_threshold = 0, remove_below = TRUE) {
   
   # Checkings
   .check_type(sdm_data)
@@ -2030,188 +2039,64 @@ sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
   }
   
   names_vars <- names(sdm_data$training)[2:ncol(sdm_data$training)]
-  n_vars <- length(names_vars)
+  bivar_combs <- combn(names_vars, 2)
+  bivar_df <- data.frame(t(bivar_combs), stringsAsFactors = FALSE)
+  
+  colnames(bivar_df) <- c("variable_1", "variable_2")
+  
+  n_vars <- nrow(bivar_df)
   
   models_list <- lapply(1:n_vars, function(x) NULL)
   
   for (va in 1:n_vars) {
     
-    .cat_sdm(verbose, paste("Running ESM variable", va, "out of", n_vars))
+    .cat_sdm(verbose, paste("Running ESM variable combination", va, "out of", n_vars))
     
     sdm_data_mod <- sdm_data
     
-    sdm_data_mod$training <- sdm_data_mod$training[,c("presence", names_vars[va])]
+    sdm_data_mod$training <- sdm_data_mod$training[,c("presence", unlist(bivar_df[va,]))]
     
-    models_list[[va]] <- .sdm_module_maxent_esm(
+    models_list[[va]] <- sdm_module_maxent(
       sdm_data_mod, options = options, verbose = verbose,
       tune_blocks = tune_blocks, metric = metric
     )
     
   }
   
-  .cat_sdm(verbose, "ESM model concluded", bg = T)
+  if (esm_metric == "dsomers") {
+    auc_values <- lapply(models_list, function(x){
+      mean(x$cv_metrics$auc, na.rm = T)
+    })
+    auc_values <- unlist(auc_values)
+    
+    models_scores <- 2 * auc_values - 1
+    
+  } else if (esm_metric == "cbi") {
+    
+    cbi_values <- lapply(models_list, function(x){
+      mean(x$cv_metrics$cbi, na.rm = T)
+    })
+    
+    models_scores <- unlist(cbi_values)
+    
+  } else {
+    models_scores <- NULL
+  }
   
+  if (remove_below) {
+    which_below <- which(models_scores < esm_threshold)
+    if (length(which_below) > 0) {
+      models_list <- models_list[-which_below]
+      models_scores <- models_scores[-which_below]
+    }
+  }
+  
+  attr(models_list, "scores") <- models_scores
+  
+  .cat_sdm(verbose, "ESM model concluded", bg = T)
   
   class(models_list) <- c("sdm_esm_result", class(models_list))
   
   return(models_list)
-  
-}
-
-#' @export
-.sdm_module_maxent_esm <- function(sdm_data, options = NULL, verbose = TRUE,
-                              tune_blocks = "spatial_grid", metric = "cbi") {
-  
-  # Checkings
-  .check_type(sdm_data)
-  .cat_sdm(verbose, "Preparing data")
-  timings <- .get_time()
-  
-  # Get options
-  if (is.null(options)) {
-    options <- sdm_options("maxent")
-  }
-  
-  features <- options[["features"]]
-  remult <- options[["remult"]]
-  
-  # Separate data
-  p <- sdm_data$training$presence
-  varname <- colnames(sdm_data$training)[!colnames(sdm_data$training) %in% "presence"]
-  dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
-  dat <- as.data.frame(dat)
-  colnames(dat) <- varname
-  
-  # Tune model
-  # Create grid for tuning
-  tune_grid <- expand.grid(
-    remult = remult,
-    features = features,
-    stringsAsFactors = FALSE
-  )
-  
-  .cat_sdm(verbose, "Tuning model")
-  
-  tune_test <- rep(NA, nrow(tune_grid))
-  cv_results <- list()
-  
-  for (k in 1:nrow(tune_grid)) {
-    
-    .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
-    
-    b_index <- sdm_data$blocks$folds[[tune_blocks]]
-    
-    tune_block <- .maxent_esm_cv(p, dat, b_index,
-                             features = tune_grid$features[k],
-                             regmult = tune_grid$remult[k],
-                             varname = varname)
-    
-    cv_results[[k]] <- as.data.frame(tune_block)
-    
-    tune_block <- apply(tune_block, 2, mean, na.rm = T)
-    
-    tune_test[k] <- tune_block[metric]
-  }
-  
-  # Get best tune
-  best_tune <- tune_grid[which.max(tune_test)[1],]
-  
-  timings <- .get_time(timings, "tuning")
-  
-  # Fit full model
-  .cat_sdm(verbose, "Training and evaluating final model")
-  
-  full_fit <- maxnet::maxnet(p = p,
-                             data = dat,
-                             f = maxnet::maxnet.formula(p = p,
-                                                        data = dat,
-                                                        classes = best_tune$features),
-                             regmult = best_tune$remult,
-                             addsamplestobackground = F) # Change to F
-  
-  pred_full <- predict(full_fit, dat, type = "cloglog")
-  
-  metrics_full <- eval_metrics(p, pred_full)
-  
-  timings <- .get_time(timings, "evaluate final")
-  
-  # Prepare returning object
-  result <- list(
-    name = "maxent",
-    model = full_fit,
-    variables = colnames(dat),
-    n_pts = c(presence = sum(p),
-              background = (length(p) - sum(p))),
-    timings = timings,
-    cv_method = tune_blocks,
-    parameters = best_tune,
-    cv_metrics = cv_results[[which.max(tune_test)[1]]],
-    full_metrics = metrics_full,
-    eval_metrics = NULL
-  )
-  
-  
-  # If evaluation dataset is available, evaluate
-  if (!is.null(sdm_data$eval_data)) {
-    
-    # Separate data
-    p_eval <- sdm_data$eval_data$presence
-    dat_eval <- sdm_data$eval_data[, !colnames(sdm_data$eval_data) %in% "presence"]
-    
-    # Predict
-    pred_eval <- predict(full_fit, dat_eval, type = "cloglog")
-    
-    metrics_eval <- eval_metrics(p_eval, pred_eval)
-    
-    result$eval_metrics <- metrics_eval
-    
-    result$timings <- .get_time(result$timings, "evaluation dataset")
-    
-  }
-  
-  .cat_sdm(verbose, "Maxent model concluded", bg = T)
-  
-  class(result) <- c("sdm_result", class(result))
-  
-  return(result)
-  
-}
-
-#' @export
-.maxent_esm_cv <- function(p, dat, blocks, features, regmult, varname){
-  
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
-    
-    test_p <- p[blocks == id]
-    test_dat <- dat[blocks == id,]
-    
-    train_p <- p[blocks != id]
-    train_dat <- dat[blocks != id,]
-    
-    train_dat <- as.data.frame(train_dat)
-    test_dat <- as.data.frame(test_dat)
-    
-    colnames(train_dat) <- colnames(test_dat) <- varname
-    
-    mfit <- try(maxnet::maxnet(p = train_p,
-                               data = train_dat,
-                               f = maxnet::maxnet.formula(p = train_p,
-                                                          data = train_dat,
-                                                          classes = features),
-                               regmult = regmult,
-                               addsamplestobackground = F), # change to F
-                silent = T)
-    
-    if (inherits(mfit, "try-error")) { # Still to be fixed/verified
-      NULL
-    } else {
-      pred <- predict(mfit, test_dat, type = "cloglog")
-      
-      eval_metrics(test_p, pred)
-    }
-    
-  })
-  
-  return(do.call("rbind", blocks_results))
   
 }
