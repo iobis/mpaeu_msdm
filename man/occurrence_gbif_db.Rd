@@ -15,6 +15,7 @@ occurrence_gbif_db(
   backend = "duckdb",
   version = NULL,
   bucket = NULL,
+  safe = FALSE,
   verbose = FALSE
 )
 }
@@ -52,6 +53,8 @@ downloaded.}
 If \code{NULL}, the latest one is used}
 
 \item{bucket}{which bucket to use. If \code{NULL} the default bucket is used (see \code{\link[gbifdb:gbif_remote]{gbifdb::gbif_remote()}})}
+
+\item{safe}{if \code{TRUE} it reduces the memory limit of DuckDB. Only necessary if you are having troubles with the function.}
 
 \item{verbose}{if \code{TRUE} messages are printed.}
 }

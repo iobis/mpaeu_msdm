@@ -9,9 +9,9 @@
 #' @param species_folder the folder where the species data is located (i.e. the
 #'   OBIS and GBIF full exports)
 #' @param reader which package to use for reading the parquet databases. One of
-#'   "polars" or "arrow". If you followed the project steps, then "polars" is
+#'   "polars", "duckdb" or "arrow". If you followed the project steps, then "polars" is
 #'   recommended because is faster. But if you are facing any problems, just
-#'   change for "arrow"
+#'   change for "arrow" or "duckdb" (the last have better memory usage)
 #' @param species_outfolder folder to output the files
 #' @param geo_out if \code{TRUE} assess geographical outliers. See
 #'   [outqc_geo()]. Note that at least 5 records are necessary for any outlier
@@ -116,6 +116,8 @@
 #'   - "FOSSIL_SPECIMEN" or "FossilSpecimen"
 #'   - "LIVING_SPECIMEN" or "LivingSpecimen"
 #'
+#' @import dplyr
+#'
 #' @examples
 #' \dontrun{
 #' base_rast <- rast("data/env/current/thetao_baseline_depthsurf_mean.tif")
@@ -146,8 +148,8 @@ mp_standardize <- function(species,
                            verbose = TRUE
 ) {
   
-  if (!reader %in% c("polars", "arrow")) {
-    stop("Reader should be one of `polars` or `arrow`")
+  if (!reader %in% c("polars", "arrow", "duckdb")) {
+    stop("Reader should be one of `polars`, `arrow` or `duckdb`")
   }
   
   if (remove_land & is.null(sdm_base)) {
@@ -203,6 +205,9 @@ mp_standardize <- function(species,
     require("polars")
   } else if (reader == "arrow") {
     require("arrow")
+  } else if (reader == "duckdb") {
+    require("DBI")
+    require("duckdb")
   }
   
   # Load data
@@ -237,6 +242,7 @@ mp_standardize <- function(species,
         collect()
       
       obis_data <- obis_data$to_data_frame()
+      rm(obis_ds_pl)
     } else if (reader == "arrow") {
       obis_ds_pl <- open_dataset(obis_ds)
       
@@ -244,13 +250,24 @@ mp_standardize <- function(species,
         select(all_of(obis_columns)) %>%
         filter(AphiaID == species_code) %>%
         collect()
+      rm(obis_ds_pl)
+    } else if (reader == "duckdb") {
+      con <- dbConnect(duckdb())
+      obis_data <- dbGetQuery(con, glue::glue(
+        "
+        select {paste(obis_columns, collapse = ', ')}
+        from read_parquet('{obis_ds}')
+        where AphiaID = {species_code}
+       "
+      ))
+      DBI::dbDisconnect(con)
     }
     
     obis_data <- obis_data %>%
       rename(taxonID = AphiaID) %>%
       mutate(day = as.numeric(day),
              month = as.numeric(month),
-             year = as.numeric(year)) %>%
+             year = as.numeric(date_year)) %>%
       filter(year >= min_year)
     
     if (basisrec[1] != "excludenothing") {
@@ -274,7 +291,7 @@ mp_standardize <- function(species,
     obis_data_absence <- NULL
   }
   
-  if (length(gbif_ds) > 0) {
+  if (length(gbif_ds) > 0 && !is.na(species_list$gbif_speciesKey[1])) {
     if (reader == "polars") {
       gbif_ds_pl <- pl$scan_parquet(
         file.path(gbif_ds, "**/*.parquet"), hive_partitioning = FALSE
@@ -286,13 +303,75 @@ mp_standardize <- function(species,
         collect()
       
       gbif_data <- gbif_data$to_data_frame()
+      
+      rm(gbif_ds_pl)
     } else if (reader == "arrow") {
       gbif_ds_pl <- open_dataset(gbif_ds)
       
-      gbif_data <- gbif_ds_pl %>%
-        select(all_of(gbif_columns)) %>%
-        filter(specieskey == species_list$gbif_speciesKey) %>%
-        collect()
+      if (grepl("order=", gbif_ds_pl$files[1]) & 
+          "gbif_order" %in% colnames(species_list)) {
+        selorder <- ifelse(is.na(species_list$gbif_order[1]),
+                           "noorder", species_list$gbif_order[1])
+        
+        gbif_data <- gbif_ds_pl %>%
+          filter(order == selorder) %>%
+          select(all_of(gbif_columns)) %>%
+          filter(specieskey == species_list$gbif_speciesKey) %>%
+          collect()
+      } else {
+        gbif_data <- gbif_ds_pl %>%
+          select(all_of(gbif_columns)) %>%
+          filter(specieskey == species_list$gbif_speciesKey) %>%
+          collect()
+      }
+      
+      rm(gbif_ds_pl)
+    } else if (reader == "duckdb") {
+      con <- dbConnect(duckdb())
+      
+      which_use <- ifelse(dir.exists(gbif_ds),
+                          "folder_mode", "file_mode")
+      
+      if (which_use == "folder_mode") {
+        
+        if (grepl("order=", list.files(gbif_ds)[1])) {
+          
+          if ("gbif_order" %in% colnames(species_list)) {
+            selorder <- ifelse(is.na(species_list$gbif_order[1]),
+                               "noorder", species_list$gbif_order[1])
+            selorder <- paste0("'", selorder, "'")
+            selorder <- paste('"order" =', selorder, "and")
+          } else {
+            selorder <- ""
+          }
+          
+          gbif_data <- dbGetQuery(con, glue::glue(
+            '
+             select {paste(gbif_columns, collapse = ", ")}
+             from read_parquet("{gbif_ds}/*/*.parquet", hive_partitioning = true)
+             where {selorder} specieskey = {species_list$gbif_speciesKey}
+            '
+          ))
+        } else {
+          gbif_data <- dbGetQuery(con, glue::glue(
+            "
+        select {paste(gbif_columns, collapse = ', ')}
+        from read_parquet('{gbif_ds}/*')
+        where specieskey = {species_list$gbif_speciesKey}
+       "
+          ))
+        }
+      } else {
+        gbif_data <- dbGetQuery(con, glue::glue(
+          "
+        select {paste(gbif_columns, collapse = ', ')}
+        from read_parquet('{gbif_ds}')
+        where AphiaID = {species_list$gbif_speciesKey}
+       "
+        ))
+      }
+      
+      DBI::dbDisconnect(con)
     }
     
     gbif_data <- gbif_data %>%
@@ -331,6 +410,8 @@ mp_standardize <- function(species,
     non_dup_recs <- outqc_dup_check(obis_data)
   }
   
+  rm(obis_data, gbif_data)
+  
   # Remove from land
   if (remove_land) {
     if (!is.null(sdm_base)) {
@@ -352,7 +433,11 @@ mp_standardize <- function(species,
             if (all(is.na(adj_values[,1]))) {
               ret_df <- data.frame(cell = NA, x = NA, y = NA)
             } else {
-              sel_cel <- sample(which(!is.na(adj_values[,1])), 1)
+              if (length(which(!is.na(adj_values[,1]))) == 1) {
+                sel_cel <- which(!is.na(adj_values[,1]))
+              } else {
+                sel_cel <- sample(which(!is.na(adj_values[,1])), 1)
+              }
               sel_cel <- as.vector(adj_cells)[sel_cel]
               sel_crds <- terra::xyFromCell(sdm_base, sel_cel)
               ret_df <- data.frame(cell = sel_cel, x = sel_crds[1,1], y = sel_crds[1,2])
@@ -433,7 +518,8 @@ mp_standardize <- function(species,
     non_dup_recs <- do.call("rbind", non_dup_recs_cell)
     
     non_dup_recs$cell <- terra::cellFromXY(
-      terra::rast(list.files("data/distances/distances.zarr/", pattern = ".tif", full.names = T)[1]),
+      terra::rast(list.files("data/distances/", recursive = T,
+                             pattern = ".tif", full.names = T)[1]),
       non_dup_recs[,lonlatdim]
     )
     
@@ -587,7 +673,7 @@ mp_standardize <- function(species,
       min_max_year <- function(target, sdm_base, rec_data) {
         cell_base <- sdm_base
         cell_base[] <- NA
-        cell_base_id <- cellFromXY(cell_base, as.data.frame(target[,lonlatdim]))
+        cell_base_id <- terra::cellFromXY(cell_base, as.data.frame(target[,lonlatdim]))
         target$cell <- cell_base_id
         target <- target %>%
           group_by(cell) %>%
@@ -612,7 +698,7 @@ mp_standardize <- function(species,
       if (add_fao) {
         if (reader == "polars") {
           fao_areas <- pl$scan_parquet(fao_areas)
-        } else if (reader == "arrow") {
+        } else {
           fao_areas <- arrow::open_dataset(fao_areas)
         }
         
@@ -630,7 +716,7 @@ mp_standardize <- function(species,
             fao_areas_sp <- fao_areas$filter(pl$col("SpecCode") == sp_sbase$SpecCode[1])$
               collect()
             fao_areas_sp <- fao_areas_sp$to_data_frame()
-          } else if (reader == "arrow") {
+          } else {
             fao_areas_sp <- fao_areas %>%
               filter(SpecCode == sp_sbase$SpecCode[1]) %>%
               collect()

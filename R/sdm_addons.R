@@ -343,9 +343,9 @@ save_sdm <- function(model, what, where) {
 
 #' Assess the importance of variables for the model
 #'
-#' @param model 
-#' @param sdm_data 
-#' @param iterations 
+#' @param model model
+#' @param sdm_data sdm_data object
+#' @param iterations number of iteration
 #'
 #' @return a data.frame with variables importance
 #' @export
@@ -386,6 +386,82 @@ variable_importance <- function(model, sdm_data, iterations = 10) {
       working_data[,i] <- working_data[sample.int(nrow(working_data)),i]
       
       new_pred <- predict(model, working_data)
+      
+      cor_val <- c(cor_val, (1 - cor(original_pred, new_pred)))
+    }
+    
+    var_import$mean[i] <- mean(cor_val, na.rm = T)
+    var_import$sd[i] <- sd(cor_val, na.rm = T)
+  }
+  
+  var_import$mean <- round(var_import$mean, 3)
+  var_import$sd <- round(var_import$sd, 3)
+  
+  var_import <- var_import[order(var_import$mean, decreasing = T),]
+  
+  var_import
+}
+
+
+#' Assess the importance of variables for ESM model
+#'
+#' @param model ESM models list
+#' @param sdm_data sdm_data object
+#' @param iterations number of iteration
+#'
+#' @return a data.frame with variables importance
+#' @export
+#' 
+#' @details
+#' This function calculates the importance of variables using the same principle
+#' of [randomForest::randomForest()] and [biomod2::bm_VariablesImportance()].
+#' 
+#' Once each time, a variable is shuffled and a new prediction is made. The importance of the variable
+#' is given as 1-(correlation between original and new prediction). Each variable
+#' is shuffled several times (controled by the argument \code{iterations}) and the 
+#' function returns the mean and standard deviation. The higher the score, higher is
+#' the importance of the variable for the model.
+#' 
+#'
+#' @examples
+#' \dontrun{
+#' variable_importance_esm(model, sp_data)
+#' }
+variable_importance_esm <- function(model, sdm_data, iterations = 10) {
+  
+  if (!inherits(model, "sdm_esm_result")) {
+    cli::cli_abort("This function is for ESM models. For others use {.fun variable_importance}")
+  }
+  
+  pred_data <- sdm_data$training[,2:ncol(sdm_data$training)]
+  
+  scores <- attr(model, "scores")
+  
+  get_pred <- function(model, pred_data) {
+    pred <- lapply(1:length(model), function(x){
+      predict(model[[x]], pred_data)
+    })
+    pred <- do.call("cbind", pred)
+    apply(pred, 1, weighted.mean, w = scores, na.rm = T)
+  }
+  
+  original_pred <- get_pred(model, pred_data)
+  
+  var_import <- data.frame(
+    variable = names(pred_data),
+    mean = NA,
+    sd = NA
+  )
+  
+  for (i in 1:ncol(pred_data)) {
+    cor_val <- c()
+    
+    for (z in 1:iterations) {
+      working_data <- pred_data
+      
+      working_data[,i] <- working_data[sample.int(nrow(working_data)),i]
+      
+      new_pred <- get_pred(model, working_data)
       
       cor_val <- c(cor_val, (1 - cor(original_pred, new_pred)))
     }
@@ -684,6 +760,28 @@ print.sdm_mult_result <- function(x) {
   
   cli::cat_line()
   cli::cat_line(cli::col_silver("# You can access the model using `'object'$model`."))
+}
+
+
+# Print the results of a ESM SDM object
+#' @export
+print.sdm_esm_result <- function(x) {
+  
+  x_1 <- x[[1]]
+  
+  cli::cli_h1("ESM models")
+  
+  cli::cat_line()
+  cli::cat_line(glue::glue("Models fitted: {length(x)}"))
+  cli::cat_line(glue::glue("Method used: {x_1$name}"))
+  cli::cat_line(glue::glue("Number of presence records: {x_1$n_pts[[1]]}"))
+  
+  cli::cat_line()
+  cli::cat_line("Result for the first model:")
+  print(x_1)
+  
+  cli::cat_line()
+  cli::cat_line(cli::col_silver("# You can access each model using `'object'[[`model_number`]]`."))
 }
 
 # Summary methods ----

@@ -44,9 +44,9 @@ resolution planned for the SDM). Supplying this is highly recommended}
 OBIS and GBIF full exports)}
 
 \item{reader}{which package to use for reading the parquet databases. One of
-"polars" or "arrow". If you followed the project steps, then "polars" is
+"polars", "duckdb" or "arrow". If you followed the project steps, then "polars" is
 recommended because is faster. But if you are facing any problems, just
-change for "arrow"}
+change for "arrow" or "duckdb" (the last have better memory usage)}
 
 \item{species_outfolder}{folder to output the files}
 

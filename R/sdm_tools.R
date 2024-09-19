@@ -229,6 +229,7 @@ gen_log <- function(algos){
     taxonID = NULL,
     scientificName = NULL,
     group = NULL,
+    hab_depth = NULL,
     model_date = NULL,
     model_acro = NULL,
     n_init_points = NULL,
@@ -262,6 +263,13 @@ gen_log <- function(algos){
     model_posteval = eval(parse(text = paste0(
       "list(", paste0(c(algos, "ensemble", "niche", "hyperniche"), "=", "NULL", collapse = ","), ")"
     ))),
+    model_uncertainty = list(
+      bootstrap_status = NULL,
+      bootstrap_iterations = NULL,
+      bootstrap_models = NULL,
+      bootstrap_max_n = NULL
+    ),
+    other_details = NULL,
     timings = NULL,
     obissdm_version = as.character(packageVersion("obissdm"))
   )
@@ -271,11 +279,15 @@ gen_log <- function(algos){
 
 #' Save log object
 #'
-#' @param log_object log object generated with [gen_log()]
+#' @param log_object log object generated with [gen_log()]. For [view_log()]
+#'  can also be a path to a json file
 #' @param file_path the path to save the file in .json format
 #'
 #' @return saved file
 #' @export
+#' 
+#' @details
+#' You can quickly visualize the log files using [view_log()]
 #'
 #' @examples
 #' \dontrun{
@@ -287,4 +299,18 @@ save_log <- function(log_object, file_path) {
   
   return(invisible(NULL))
   
+}
+
+#' @rdname save_log
+#' @export
+view_log <- function(log_object) {
+  if (!require("listviewer", quietly = T)) {
+    cli::cli_abort("You need to install the package {.pkg listviewer} to use that function.
+                   Use 'install.packages('listviewer')'")
+  }
+  if (is.character(log_object)) {
+    log_object <- jsonlite::read_json(log_object)
+  }
+  print(listviewer::jsonedit(log_object))
+  return(invisible(NULL))
 }

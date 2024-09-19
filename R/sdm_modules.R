@@ -129,7 +129,8 @@ sdm_options <- function(sdm_method = NULL) {
       method = "naive",
       total_area = NULL,
       weight_resp = TRUE,
-      k_val = c(5, 10)
+      k_val = c(5, 10),
+      select = c(FALSE, TRUE)
     ),
     # XGBoost
     xgboost = list(
@@ -149,6 +150,11 @@ sdm_options <- function(sdm_method = NULL) {
       feature_fraction = 1, #c(0.8) # controls the fraction of features to consider for each tree, can reduce overfit
       bagging_fraction = 1,#c(0.8) # fraction of data to be used for each iteration, reduces overfit
       early_stopping_round = 0 # number of rounds after which the training will stop if there's no improvement in the validation metric
+    ),
+    # ESM
+    esm = list(
+      features = "lq",
+      remult = seq(2, 3, 1)
     )
   )
   
@@ -945,6 +951,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   method <- options[["method"]]
   type <- options[["type"]]
   mtry <- options[["mtry"]]
+  mtry_names <- mtry
   
   # Separate data
   p <- sdm_data$training$presence
@@ -1061,7 +1068,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     cv_method = tune_blocks,
     parameters = list(
       n_trees = best_tune$n_trees,
-      mtry = best_tune$mtry,
+      mtry = mtry_names[which(mtry == best_tune$mtry)],
       method = method,
       type = type
     ),
@@ -1359,6 +1366,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   weight_resp <- options[["weight_resp"]]
   k_val <- options[["k_val"]]
   total_area <- options[["total_area"]]
+  select <- options[["select"]]
   
   # Separate data
   p <- sdm_data$training$presence
@@ -1403,6 +1411,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   # Create grid for tuning
   tune_grid <- expand.grid(
     k_val = k_val,
+    select = select,
     stringsAsFactors = FALSE
   )
   
@@ -1427,7 +1436,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     tune_block <- .gam_cv(p, dat, b_index,
                           forms = tune_forms,
                           wt = wt, family = fam,
-                          to_norm = to_norm)
+                          to_norm = to_norm,
+                          select = tune_grid$select[k])
     
     cv_results[[k]] <- as.data.frame(tune_block)
     
@@ -1446,7 +1456,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   
   forms <- as.formula(
     paste("presence ~", paste(
-      "s(", var_names, ", k=", best_tune, ", bs='cr')",
+      "s(", var_names, ", k=", best_tune$k_val, ", bs='cr')",
       collapse = "+"
     ))
   )
@@ -1454,7 +1464,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   full_fit <- mgcv::bam(forms, family = fam,
                         data = dat,
                         weights = wt,
-                        method = "fREML")
+                        method = "fREML",
+                        select = best_tune$select)
   
   pred_full <- predict(full_fit, dat, type = "response")
   
@@ -1475,7 +1486,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     cv_method = tune_blocks,
     parameters = list(weight_resp = weight_resp,
                       total_area = total_area,
-                      k_val = best_tune,
+                      k_val = best_tune$k_val,
+                      select = best_tune$select,
                       method = method),
     cv_metrics = cv_results[[which.max(tune_test)[1]]],
     full_metrics = metrics_full,
@@ -1512,7 +1524,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 #' @export
-.gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm){
+.gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm, select){
   
   blocks_results <- lapply(1:length(unique(blocks)), function(id){
     
@@ -1530,7 +1542,8 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
     
     mfit <- mgcv::bam(forms, family = family, data = train_dat,
                       weights = nwt,
-                      method = "fREML")
+                      method = "fREML",
+                      select = select)
     
     pred <- predict(mfit, test_dat, type = "response")
     
@@ -1980,3 +1993,110 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
 }
 
 
+#' Fit Ensemble of Small Models using maxnet
+#'
+#' @param sdm_data `sdm_dat` object containing occurrences and environmental data
+#' @param options list with options from [sdm_options()] to override the default
+#' @param verbose if `TRUE` display messages
+#' @param tune_blocks which blocks to use for cross-validation
+#' @param metric which metric to optimize in tuning using cross-validation
+#' @param esm_metric metric to filter bivariate models. One of "dsomer", which 
+#'   follows original article using Somers'D, or "cbi".
+#' @param esm_threshold value for filtering out models. Default is 0, which for
+#'   Somers'D is equivalent to remove models with AUC < 0.5
+#' @param remove_below if `TRUE` remove models below the `esm_threshold`
+#'
+#' @return list of fitted bivariate models (`sdm_esm_result` object, with
+#'   `sdm_result` objects). The main object contains an attribute `scores` which
+#'   provide easy access to the scores for model weighting.
+#' @export
+#' 
+#' @note
+#' Avoid using more than 50000 background points for ESM.
+#' 
+#' @references Breiner, F. T., Nobis, M. P., Bergamini, A., & Guisan, A. (2018). 
+#' Optimizing ensembles of small models for predicting the distribution of species 
+#' with few occurrences. In N. Isaac (Ed.), Methods in Ecology and Evolution 
+#' (Vol. 9, Issue 4, pp. 802–808). Wiley. https://doi.org/10.1111/2041-210x.12957
+#'
+#' @examples
+#' \dontrun{
+#' sdm_species <- sdm_module_esm(sp_data)
+#' }
+sdm_module_esm <- function(sdm_data, options = NULL, verbose = TRUE,
+                              tune_blocks = "spatial_grid", metric = "cbi",
+                           esm_metric = "dsomers",
+                           esm_threshold = 0, remove_below = TRUE) {
+  
+  # Checkings
+  .check_type(sdm_data)
+  .cat_sdm(verbose, "Preparing data")
+  timings <- .get_time()
+  
+  # Get options
+  if (is.null(options)) {
+    options <- sdm_options("esm")
+  }
+  
+  names_vars <- names(sdm_data$training)[2:ncol(sdm_data$training)]
+  bivar_combs <- combn(names_vars, 2)
+  bivar_df <- data.frame(t(bivar_combs), stringsAsFactors = FALSE)
+  
+  colnames(bivar_df) <- c("variable_1", "variable_2")
+  
+  n_vars <- nrow(bivar_df)
+  
+  models_list <- lapply(1:n_vars, function(x) NULL)
+  
+  for (va in 1:n_vars) {
+    
+    .cat_sdm(verbose, paste("Running ESM variable combination", va, "out of", n_vars))
+    
+    sdm_data_mod <- sdm_data
+    
+    sdm_data_mod$training <- sdm_data_mod$training[,c("presence", unlist(bivar_df[va,]))]
+    
+    models_list[[va]] <- sdm_module_maxent(
+      sdm_data_mod, options = options, verbose = verbose,
+      tune_blocks = tune_blocks, metric = metric
+    )
+    
+  }
+  
+  if (esm_metric == "dsomers") {
+    auc_values <- lapply(models_list, function(x){
+      mean(x$cv_metrics$auc, na.rm = T)
+    })
+    auc_values <- unlist(auc_values)
+    
+    models_scores <- 2 * auc_values - 1
+    
+  } else if (esm_metric == "cbi") {
+    
+    cbi_values <- lapply(models_list, function(x){
+      mean(x$cv_metrics$cbi, na.rm = T)
+    })
+    
+    models_scores <- unlist(cbi_values)
+    
+  } else {
+    models_scores <- NULL
+  }
+  
+  if (remove_below) {
+    which_below <- which(models_scores < esm_threshold)
+    if (length(which_below) > 0) {
+      models_list <- models_list[-which_below]
+      models_scores <- models_scores[-which_below]
+    }
+  }
+  
+  attr(models_list, "scores") <- models_scores
+  
+  .cat_sdm(verbose, "ESM model concluded", bg = T)
+  
+  class(models_list) <- c("sdm_esm_result", class(models_list))
+  
+  return(models_list)
+  
+}

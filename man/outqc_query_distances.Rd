@@ -9,7 +9,7 @@ outqc_query_distances(
   kdist = NULL,
   try_closest = TRUE,
   distfolder = "distances",
-  mode = "zarr",
+  mode = "rds",
   returnid = TRUE
 )
 }
@@ -24,8 +24,10 @@ able to find the valid cells that were computed.}
 
 \item{distfolder}{the folder holding the distance layers produced with \code{\link[=outqc_get_distances]{outqc_get_distances()}}}
 
-\item{mode}{one of \code{zarr}, \code{xarray} or \code{tif}. Default is \code{zarr} which assumes that
-after running \code{\link[=outqc_get_distances]{outqc_get_distances()}}, the function \code{\link[=outqc_dist_tozarr]{outqc_dist_tozarr()}} was used.}
+\item{mode}{one of \code{rds}, \code{zarr}, \code{xarray} or \code{tif}.
+Default is \code{zarr} which assumes that after running \code{\link[=outqc_get_distances]{outqc_get_distances()}},
+the function \code{\link[=outqc_dist_tords]{outqc_dist_tords()}} was used. It is recommended to use mode \code{rds} which
+is less memory and time consuming}
 
 \item{returnid}{if \code{TRUE} returns the ID}
 }
@@ -40,8 +42,7 @@ If \code{try_closest} was set to \code{TRUE} in when getting the distances,
 then it's possible that some non-valid (empty) cells were omited. In that case
 the function will return NA for those records.
 
-Note: for \code{mode = "zarr"}, which is the current default, you need to have
-the \code{Rarr} package installed (through Bioconductor).
+Note: for \code{mode = "zarr"}, you need to have the \code{Rarr} package installed (through Bioconductor).
 
 For mode \code{"xarray"}, you need Python and the \link{reticulate} package installed
 and the \code{xarray} Python package. This mode is memory intensive and is not (always)
