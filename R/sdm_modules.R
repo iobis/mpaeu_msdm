@@ -1035,6 +1035,8 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   if (type == "down-sampled") {
     pres <- sum(p) 
     smpsize <- c("0" = pres, "1" = pres)
+  } else {
+    smpsize <- nrow(dat)
   }
   
   full_fit <- randomForest::randomForest(formula = presence ~ .,
@@ -1123,6 +1125,8 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     if (type == "down-sampled" | method == "classification") {
       pres <- sum(train_p) 
       smpsize <- c("0" = pres, "1" = pres)
+    } else {
+      smpsize <- nrow(dat)
     }
     
     mfit <- randomForest::randomForest(formula = presence ~ .,
@@ -1791,9 +1795,9 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
   
   # Settings
   if (weight_resp) {
-    pres <- length(train_p[train_p == 1])
-    bkg <- length(train_p[train_p == 0])
-    wt <- ifelse(train_p == 1, 1, pres / bkg)
+    pres <- length(p[p == 1])
+    bkg <- length(p[p == 0])
+    wt <- ifelse(p == 1, 1, pres / bkg)
   } else {
     wt <- NULL
   }
