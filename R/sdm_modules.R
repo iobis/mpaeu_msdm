@@ -108,7 +108,8 @@ sdm_options <- function(sdm_method = NULL) {
       t_depth = 1,
       lr = 0.01,
       bag_fraction = 0.75,
-      weight_resp = FALSE
+      weight_resp = FALSE,
+      var_monotone = 0
     ),
     # RF
     rf = list(
@@ -138,7 +139,8 @@ sdm_options <- function(sdm_method = NULL) {
       gamma = seq(from = 0, to = 4, by = 2),
       depth = c(3, 5),
       rounds = c(10, 50, 100),
-      scale_pos_weight = 1
+      scale_pos_weight = 1,
+      monotone_constraints = 0
     ),
     # LightGBM
     lgbm = list(
@@ -420,7 +422,7 @@ sdm_module_maxent <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @export
 .maxent_cv <- function(p, dat, blocks, features, regmult){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -544,7 +546,7 @@ sdm_module_lasso <- function(sdm_data, options = NULL, verbose = TRUE,
     
     alpha_error <- rep(NA, length(alpha_param))
     
-    for (ap in 1:length(alpha_param)) {
+    for (ap in seq_len(length(alpha_param))) {
       lasso_cv_a <- try(glmnet::cv.glmnet(x = training_poly,
                                           y = resp_vec,
                                           family = fam,
@@ -584,7 +586,7 @@ sdm_module_lasso <- function(sdm_data, options = NULL, verbose = TRUE,
   
   timings <- .get_time(timings, "tuning")
   
-  best_lambda <- lasso_cv$lambda.1se
+  #best_lambda <- lasso_cv$lambda.1se
   
   # Get data for CV
   pred_test <- lasso_cv$fit.preval[,lasso_cv$index["1se",]]
@@ -711,12 +713,21 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   lr <- options[["lr"]]
   bag_fraction <- options[["bag_fraction"]]
   weight_resp <- options[["weight_resp"]]
+  var_monotone <- options[["var_monotone"]]
   
   # Separate data
   p <- sdm_data$training$presence
   dat <- sdm_data$training
   
   # Settings
+  if (length(var_monotone) > 1) {
+    if (length(var_monotone) != (ncol(dat)-1)) {
+      cli::cli_abort("Monotonicity constrain vector for BRT should be length 1 or equal to number of variables.")
+    }
+  } else {
+    var_monotone <- rep(var_monotone, (ncol(dat)-1))
+  }
+
   if (method == "iwlr" | method == "dwpr") {
     weight_resp <- TRUE
     to_norm <- TRUE
@@ -756,7 +767,7 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   cv_results <- list()
   
   
-  for (k in 1:nrow(tune_grid)) {
+  for (k in seq_len(nrow(tune_grid))) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
 
@@ -767,7 +778,8 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
                               t_depth = tune_grid$t_depth[k], 
                               lr = tune_grid$lr[k],
                               bag_fraction = tune_grid$bag_fraction[k],
-                              wt = wt, to_norm = to_norm, method = method),
+                              wt = wt, var_monotone = var_monotone,
+                              to_norm = to_norm, method = method),
                       silent = T)
     
     if (inherits(tune_block, "try-error")) tune_block <- NULL
@@ -802,6 +814,7 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
                        bag.fraction = best_tune$bag_fraction,
                        cv.folds = 0,
                        n.minobsinnode = 5, 
+                       var.monotone = var_monotone,
                        verbose = FALSE)
   
   pred_full <- predict(full_fit, dat, type = "response")
@@ -827,7 +840,8 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
       t_depth = best_tune$t_depth,
       lr = best_tune$lr,
       bag_fraction = best_tune$bag_fraction,
-      weight_resp = weight_resp
+      weight_resp = weight_resp,
+      var_monotone = var_monotone
     ),
     cv_metrics = cv_results[[bfit]],
     full_metrics = metrics_full,
@@ -865,9 +879,9 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
 
 #' @export
 .brt_cv <- function(p, dat, blocks, n_trees, t_depth, lr, bag_fraction,
-                    wt, method, to_norm){
+                    wt, var_monotone, method, to_norm){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -888,6 +902,7 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
                   bag.fraction = bag_fraction,
                   cv.folds = 0,
                   n.minobsinnode = 5, 
+                  var.monotone = var_monotone,
                   verbose = FALSE)
     } else {
       mfit <- gbm::gbm(presence ~ ., 
@@ -900,6 +915,7 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
                   bag.fraction = bag_fraction,
                   cv.folds = 0,
                   n.minobsinnode = 5, 
+                  var.monotone = var_monotone,
                   verbose = FALSE)
     }
     
@@ -1005,7 +1021,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
   tune_test <- rep(NA, nrow(tune_grid))
   cv_results <- list()
   
-  for (k in 1:nrow(tune_grid)) {
+  for (k in seq_len(nrow(tune_grid))) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
     
@@ -1114,7 +1130,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @export
 .rf_cv <- function(p, dat, blocks, ntrees, mtry, type, method){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -1305,7 +1321,7 @@ sdm_module_glm <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @export
 .glm_cv <- function(p, dat, blocks, forms, wt, method, to_norm){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -1424,7 +1440,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
   tune_test <- rep(NA, nrow(tune_grid))
   cv_results <- list()
   
-  for (k in 1:nrow(tune_grid)) {
+  for (k in seq_len(nrow(tune_grid))) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
     
@@ -1530,7 +1546,7 @@ sdm_module_gam <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @export
 .gam_cv <- function(p, dat, blocks, forms, wt, family, to_norm, select){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -1598,11 +1614,20 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
   depth <- options[["depth"]]
   rounds <- options[["rounds"]]
   scale_pos_weight <- options[["scale_pos_weight"]]
+  monotone_constraints <- options[["monotone_constraints"]]
   
   # Separate data
   p <- sdm_data$training$presence
   dat <- sdm_data$training[, !colnames(sdm_data$training) %in% "presence"]
   
+  # Settings
+  if (length(monotone_constraints) > 1) {
+    if (length(monotone_constraints) != ncol(dat)) {
+      cli::cli_abort("Monotonicity constrain vector for BRT should be length 1 or equal to number of variables.")
+    }
+  } else {
+    monotone_constraints <- rep(monotone_constraints, ncol(dat))
+  }
   
   # Tune model
   # Create grid for tuning
@@ -1620,7 +1645,7 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
   tune_test <- rep(NA, nrow(tune_grid))
   cv_results <- list()
   
-  for (k in 1:nrow(tune_grid)) {
+  for (k in seq_len(nrow(tune_grid))) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
     
@@ -1631,7 +1656,8 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
                           gamma = tune_grid$gamma[k],
                           depth = tune_grid$depth[k],
                           rounds = tune_grid$rounds[k],
-                          scale_pos_weight = tune_grid$scale_pos_weight[k])
+                          scale_pos_weight = tune_grid$scale_pos_weight[k],
+                          monotone_constraints = monotone_constraints)
     
     cv_results[[k]] <- as.data.frame(tune_block)
     
@@ -1656,6 +1682,7 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
     scale_pos_weight = best_tune$scale_pos_weight,
     nrounds = best_tune$rounds,
     learning_rate = best_tune$shrinkage,
+    monotone_constraints = monotone_constraints,
     verbose = 0,
     nthread = 1, 
     objective = "binary:logistic")
@@ -1681,7 +1708,8 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
       scale_pos_weight = best_tune$scale_pos_weight,
       rounds = best_tune$rounds,
       shrinkage = best_tune$shrinkage,
-      objective = "binary:logistic"
+      objective = "binary:logistic",
+      monotone_constraints = monotone_constraints
     ),
     cv_metrics = cv_results[[which.max(tune_test)[1]]],
     full_metrics = metrics_full,
@@ -1717,9 +1745,9 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
 
 #' @export
 .xgb_cv <- function(p, dat, blocks, shrinkage, gamma, depth, rounds,
-                    scale_pos_weight){
+                    scale_pos_weight, monotone_constraints){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
@@ -1735,6 +1763,7 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
       scale_pos_weight = scale_pos_weight,
       nrounds = rounds,
       learning_rate = shrinkage,
+      monotone_constraints = monotone_constraints,
       verbose = 0,
       nthread = 1, 
       objective="binary:logistic")
@@ -1820,7 +1849,7 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
   tune_test <- rep(NA, nrow(tune_grid))
   cv_results <- list()
   
-  for (k in 1:nrow(tune_grid)) {
+  for (k in seq_len(nrow(tune_grid))) {
     
     .cat_sdm(verbose, glue::glue("Tuning option {k} out of {nrow(tune_grid)}"))
     
@@ -1851,9 +1880,9 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
   # Fit full model
   .cat_sdm(verbose, "Training and evaluating final model")
   
-  to_hold <- sample(1:nrow(dat), nrow(dat)*0.2)
+  to_hold <- sample(seq_len(nrow(dat)), nrow(dat)*0.2)
   
-  to_include <- 1:nrow(dat)
+  to_include <- seq_len(nrow(dat))
   to_include <- to_include[-to_hold]
   
   full_fit <- lightgbm::lgb.train(
@@ -1947,7 +1976,7 @@ sdm_module_lgbm <- function(sdm_data, options = NULL, verbose = TRUE,
                      lr, num_leaves, feature_fraction, bagging_fraction,
                      early_stopping_round, wt){
   
-  blocks_results <- lapply(1:length(unique(blocks)), function(id){
+  blocks_results <- lapply(seq_len(length(unique(blocks))), function(id){
     
     test_p <- p[blocks == id]
     test_dat <- dat[blocks == id,]
