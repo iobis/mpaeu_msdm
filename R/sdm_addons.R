@@ -290,7 +290,7 @@ plot.sdm_respcur <- function(response_curves) {
     ab_dat$variable <- n_ab_dat
     
     ggplot(response_curves) +
-      geom_line(aes(x = base, y = response, color = in_range), show_guide = FALSE) +
+      geom_line(aes(x = base, y = response, color = in_range), show.legend = FALSE) +
       scale_color_gradientn(colors = c("darkblue", "#7AAC1D")) +
       geom_vline(data = ab_dat, aes(xintercept = min), color = "darkblue",
                  linetype = 3, alpha = .5) +
