@@ -53,6 +53,19 @@ processed files and a data.frame with the processing status
 \description{
 Prepare files for use in Zonation
 }
+\details{
+If you followed the project structure, you should not have any problem with this function as all files will be available for use.
+However, the function includes several flow control steps. It will hardly abort (except if no data is available at all),
+but will instead skip species for which one problem exists. It will record the problem in a \code{data.frame}
+which is returned by the function. The possible problems are:
+\itemize{
+\item no files available: folder for the species exist, but no prediction is available
+\item none of the specified models available: no model matching the argument \code{target_model}
+\item no bootstrap file available: predictions available, but no bootstrap file is availabe
+\item no bootstrap for the preferred model - selecting other: if there are bootstrap, but not for the target model it will chose the next available
+\item bootstrap not available for all predictions - skipping: bootstrap files exist but not for all scenarios
+}
+}
 \examples{
 \dontrun{
 post_prepare(species = c(124287, 137098), 
