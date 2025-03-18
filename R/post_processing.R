@@ -82,6 +82,17 @@
 #' @param outfolder folder to save the processed layers. If not existing, it will be created
 #' @param verbose if `TRUE` print messages
 #'
+#' @details
+#' If you followed the project structure, you should not have any problem with this function as all files will be available for use.
+#' However, the function includes several flow control steps. It will hardly abort (except if no data is available at all),
+#' but will instead skip species for which one problem exists. It will record the problem in a `data.frame` 
+#' which is returned by the function. The possible problems are:
+#' - no files available: folder for the species exist, but no prediction is available  
+#' - none of the specified models available: no model matching the argument `target_model`  
+#' - no bootstrap file available: predictions available, but no bootstrap file is availabe  
+#' - no bootstrap for the preferred model - selecting other: if there are bootstrap, but not for the target model it will chose the next available  
+#' - bootstrap not available for all predictions - skipping: bootstrap files exist but not for all scenarios  
+#'
 #' @return processed files and a data.frame with the processing status
 #' @export
 #'
@@ -206,6 +217,12 @@ post_prepare <- function(
             model_files <- model_files[grepl(paste(c("current", t_future_scenarios), collapse = "|"), model_files)]
         } else {
             model_files <- model_files[grepl("current", model_files)]
+        }
+
+        # Check if number of bootstrap and model files are the same
+        if (length(model_files[!grepl("what=boot", model_files)]) != length(model_files[grepl("what=boot", model_files)])) {
+            control[sp] <- "bootstrap not available for all predictions - skipping"
+            next
         }
 
         model_files <- model_files[!grepl("what=boot", model_files)]
