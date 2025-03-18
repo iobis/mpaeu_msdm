@@ -112,6 +112,29 @@ post_prepare <- function(
     fs::dir_create(outfolder)
     study_area <- terra::vect(study_area)
 
+    # Already check which folders are available
+    source_folder_content <- list.files(
+        source_folder, full.names = T
+    )
+    source_folder_base <- basename(source_folder_content)
+    source_folder_base <- gsub("taxonid=", "", source_folder_base[grepl("taxonid=", source_folder_base)])
+    source_folder_base <- as.numeric(source_folder_base)
+
+    species <- species[species %in% source_folder_base]
+
+    if (length(species) < 1) {
+        cli::cli_abort("No species available. Check your source folder.")
+    } else {
+        rm(source_folder_content, source_folder_base)
+    }
+
+    source_folder_content <- list.files(
+        file.path(source_folder, paste0("taxonid=", species))
+    )
+    species <- species[which(source_folder_content == paste0("model=", model_acro))]
+
+    if (length(species) < 1) cli::cli_abort("No species available for that model acronym.")
+
     # if (!is.null(s3_list)) {
     #     s3_list <- arrow::open_dataset(s3_list)
     #     s3_av <- TRUE
@@ -164,8 +187,8 @@ post_prepare <- function(
         model_files <- files_available[grepl(best_model, files_available)]
 
         if (length(future_scenarios) > 0) {
-            future_scenarios <- paste0(future_scenarios, "_", rep(future_periods, each = length(future_scenarios)))
-            model_files <- model_files[grepl(paste(c("current", future_scenarios), collapse = "|"), model_files)]
+            t_future_scenarios <- paste0(future_scenarios, "_", rep(future_periods, each = length(future_scenarios)))
+            model_files <- model_files[grepl(paste(c("current", t_future_scenarios), collapse = "|"), model_files)]
         } else {
             model_files <- model_files[grepl("current", model_files)]
         }
