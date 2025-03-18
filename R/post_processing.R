@@ -113,6 +113,7 @@ post_prepare <- function(
     study_area <- terra::vect(study_area)
 
     # Already check which folders are available
+    if (verbose) cli::cli_alert_info("Checking which species are available.")
     source_folder_content <- list.files(
         source_folder, full.names = T
     )
@@ -128,6 +129,7 @@ post_prepare <- function(
         rm(source_folder_content, source_folder_base)
     }
 
+    if (verbose) cli::cli_alert_info("Checking which species are available for this model acronym.")
     source_folder_content <- list.files(
         file.path(source_folder, paste0("taxonid=", species))
     )
@@ -174,11 +176,24 @@ post_prepare <- function(
         is_available <- unlist(is_available, use.names = F)
 
         if (!any(is_available)) {
-            control[sp] <- "any of the specified models available"
+            control[sp] <- "none of the specified models available"
             next
         }
 
-        best_model <- target_model[is_available][1]
+        boot_files <- files_available[grepl("what=boot", files_available)]
+
+        is_available_boot <- lapply(target_model, \(y) any(grepl(y, boot_files)))
+        is_available_boot <- unlist(is_available_boot, use.names = F)
+
+        if (!any(is_available_boot)) {
+            control[sp] <- "no bootstrap file available"
+            next
+        } else if (target_model[is_available][1] != target_model[is_available_boot][1]) {
+            control[sp] <- "no bootstrap for the preferred model - selecting other"
+            best_model <- target_model[is_available_boot][1]
+        } else {
+            best_model <- target_model[is_available][1]
+        }
 
         model_threshold <- arrow::read_parquet(thresholds) |> 
             filter(model == best_model) |> 
