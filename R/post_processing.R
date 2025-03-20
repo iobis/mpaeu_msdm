@@ -124,29 +124,11 @@ post_prepare <- function(
     study_area <- terra::vect(study_area)
 
     # Already check which folders are available
-    if (verbose) cli::cli_alert_info("Checking which species are available.")
-    source_folder_content <- list.files(
-        source_folder, full.names = T
-    )
-    source_folder_base <- basename(source_folder_content)
-    source_folder_base <- gsub("taxonid=", "", source_folder_base[grepl("taxonid=", source_folder_base)])
-    source_folder_base <- as.numeric(source_folder_base)
+    species <- .pp_file_check(species, source_folder, model_acro, verbose = verbose)
 
-    species <- species[species %in% source_folder_base]
-
-    if (length(species) < 1) {
-        cli::cli_abort("No species available. Check your source folder.")
-    } else {
-        rm(source_folder_content, source_folder_base)
-    }
-
-    if (verbose) cli::cli_alert_info("Checking which species are available for this model acronym.")
-    source_folder_content <- list.files(
-        file.path(source_folder, paste0("taxonid=", species))
-    )
-    species <- species[which(source_folder_content == paste0("model=", model_acro))]
-
-    if (length(species) < 1) cli::cli_abort("No species available for that model acronym.")
+    species_model <- .pp_model_check(species, source_folder, model_acro,
+                                     target_model, future_scenarios, future_periods,
+                                     verbose = verbose)
 
     # if (!is.null(s3_list)) {
     #     s3_list <- arrow::open_dataset(s3_list)
@@ -160,58 +142,17 @@ post_prepare <- function(
     for (sp in seq_len(total)) {
 
         if (verbose) cli::cli_alert_info("Processing {sp} of {total}.")
+        spl <- species_model[sp,]
 
-        id <- species[sp]
-
-        # if (s3_av) {
-        #     species_dat <- s3_list |> filter(taxonID == id) |> collect() |> pull(Key)
-        #     files_available <- file.path(source_folder, species_dat)
-        # } else {
-        #     species_dat <- list.files(file.path(source_folder, paste0("taxonid=", id)), full.names = T)
-        #     species_dat <- species_dat[grepl(model_acro, species_dat)]
-        #     files_available <- list.files(species_dat, full.names = T, recursive = T)
-        # }
-        species_dat <- list.files(file.path(source_folder, paste0("taxonid=", id)), full.names = T)
-        species_dat <- species_dat[grepl(model_acro, species_dat)]
-        files_available <- list.files(species_dat, full.names = T, recursive = T)
-
-        if (length(files_available) < 1) {
-            control[sp] <- "no files available"
+        if (!spl$control %in% c("ok", "no bootstrap for the preferred model - selecting other")) {
+            control[sp] <- spl$control
+            if (verbose) cli::cli_alert_danger("Species #{sp} with problem, skipping.")
             next
         }
 
-        thresholds <- files_available[grepl("what=thresholds", files_available)]
-        masks <- files_available[grepl("mask", files_available)]
-
-        is_available <- lapply(target_model, \(y) any(grepl(y, files_available)))
-        is_available <- unlist(is_available, use.names = F)
-
-        if (!any(is_available)) {
-            control[sp] <- "none of the specified models available"
-            next
-        }
-
-        boot_files <- files_available[grepl("what=boot", files_available)]
-
-        is_available_boot <- lapply(target_model, \(y) any(grepl(y, boot_files)))
-        is_available_boot <- unlist(is_available_boot, use.names = F)
-
-        if (!any(is_available_boot)) {
-            control[sp] <- "no bootstrap file available"
-            next
-        } else if (target_model[is_available][1] != target_model[is_available_boot][1]) {
-            control[sp] <- "no bootstrap for the preferred model - selecting other"
-            best_model <- target_model[is_available_boot][1]
-        } else {
-            best_model <- target_model[is_available][1]
-        }
-
-        model_threshold <- arrow::read_parquet(thresholds) |> 
-            filter(model == best_model) |> 
-            pull(target_threshold)
-
-        model_files <- files_available[grepl(best_model, files_available)]
-
+        model_files <- list.files(spl$species_folder, recursive = T, full.names = T)
+        model_files <- model_files[grepl(paste0("method=", spl$best_model), model_files)]
+        model_files <- model_files[!grepl("what=boot", model_files)]
         if (length(future_scenarios) > 0) {
             t_future_scenarios <- paste0(future_scenarios, "_", rep(future_periods, each = length(future_scenarios)))
             model_files <- model_files[grepl(paste(c("current", t_future_scenarios), collapse = "|"), model_files)]
@@ -219,15 +160,11 @@ post_prepare <- function(
             model_files <- model_files[grepl("current", model_files)]
         }
 
-        # Check if number of bootstrap and model files are the same
-        if (length(model_files[!grepl("what=boot", model_files)]) != length(model_files[grepl("what=boot", model_files)])) {
-            control[sp] <- "bootstrap not available for all predictions - skipping"
-            next
-        }
+        model_threshold <- arrow::read_parquet(spl$threshold) |> 
+            filter(model == spl$best_model) |> 
+            pull(target_threshold)
 
-        model_files <- model_files[!grepl("what=boot", model_files)]
-
-        mask_l <- terra::rast(masks)
+        mask_l <- terra::rast(spl$mask)
         mask_l <- terra::subset(mask_l, target_mask)
         terra::NAflag(mask_l) <- 0
 
@@ -270,4 +207,112 @@ post_prepare <- function(
     }
 
     return(data.frame(species = species, status = control))
+}
+
+#' @export
+.pp_file_check <- function(species, source_folder, model_acro, verbose) {
+
+    if (verbose) cli::cli_alert_info("Checking which species are available.")
+
+    source_folder_content <- list.files(
+        source_folder, full.names = T
+    )
+    source_folder_base <- basename(source_folder_content)
+    source_folder_base <- gsub("taxonid=", "", source_folder_base[grepl("taxonid=", source_folder_base)])
+    source_folder_base <- as.numeric(source_folder_base)
+
+    species <- species[species %in% source_folder_base]
+
+    if (length(species) < 1) {
+        cli::cli_abort("No species available. Check your source folder.")
+    }
+
+    if (verbose) cli::cli_alert_info("Checking which species are available for this model acronym.")
+    source_folder_content <- list.files(
+        file.path(source_folder, paste0("taxonid=", species))
+    )
+    species <- species[which(source_folder_content == paste0("model=", model_acro))]
+
+    if (length(species) < 1) cli::cli_abort("No species available for that model acronym.")
+
+    return(species)
+}
+
+.pp_model_check <- function(species, source_folder, model_acro, target_model,
+                            future_scenarios, future_periods, verbose) {
+
+    species_content <- lapply(species, \(id){
+
+        outdf <- data.frame(
+            species = id,
+            control = NA,
+            threshold = NA,
+            mask = NA,
+            best_model = NA,
+            species_folder = NA
+        )
+
+        species_dat <- list.files(file.path(source_folder, paste0("taxonid=", id)), full.names = T)
+        species_dat <- species_dat[grepl(paste0("model=", model_acro, "$"), species_dat)]
+        outdf$species_folder <- species_dat
+        files_available <- list.files(species_dat, full.names = T, recursive = T)
+
+        if (length(files_available) < 1) {
+            outdf$control <- "no files available"
+            return(outdf)
+        }
+
+        outdf$threshold <- files_available[grepl("what=thresholds", files_available)]
+        outdf$mask <- files_available[grepl("mask", files_available)]
+
+        is_available <- lapply(target_model, \(y) any(grepl(y, files_available)))
+        is_available <- unlist(is_available, use.names = F)
+
+        if (!any(is_available)) {
+            outdf$control <- "none of the specified models available"
+            return(outdf)
+        }
+
+        boot_files <- files_available[grepl("what=boot", files_available)]
+
+        is_available_boot <- lapply(target_model, \(y) any(grepl(y, boot_files)))
+        is_available_boot <- unlist(is_available_boot, use.names = F)
+
+        if (length(boot_files) < 1 || !any(is_available_boot)) {
+            outdf$control <- "no bootstrap file available"
+            return(outdf)
+        } else if (target_model[is_available][1] != target_model[is_available_boot][1]) {
+            outdf$control <- "no bootstrap for the preferred model - selecting other"
+            outdf$best_model <- target_model[is_available_boot][1]
+        } else {
+            outdf$best_model <- target_model[is_available][1]
+        }
+
+        model_files <- files_available[grepl(paste0("method=", outdf$best_model), files_available)]
+
+        if (length(future_scenarios) > 0) {
+            t_future_scenarios <- paste0(future_scenarios, "_", rep(future_periods, each = length(future_scenarios)))
+            model_files <- model_files[grepl(paste(c("current", t_future_scenarios), collapse = "|"), model_files)]
+        } else {
+            model_files <- model_files[grepl("current", model_files)]
+        }
+
+        boot_files <- model_files[grepl("what=boot", model_files)]
+        other_files <- model_files[!grepl("what=boot", model_files)]
+
+        # Check if number of bootstrap and model files are the same
+        if (length(boot_files) != length(other_files)) {
+            outdf$control <- "bootstrap not available for all predictions - skipping"
+            return(outdf)
+        }
+
+        outdf$control <- ifelse(is.na(outdf$control), "ok", outdf$control)
+
+        return(outdf)
+
+    })
+
+    species_content <- do.call("rbind", species_content)
+    
+    return(species_content)
 }
