@@ -822,6 +822,7 @@ setMethod("predict", signature(object = "sdm_result"),
                       maxent = predict(layers, x$model, type = "cloglog", na.rm = T, ...),
                       maxnet = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       brt = predict(layers, x$model, type = "response", na.rm = T, ...),
+                      brt_mono = predict(layers, x$model, type = "response", na.rm = T, ...),
                       rf_classification_ds = {
                         p <- predict(layers, x$model, type = "prob")
                         p[[2]]
@@ -901,6 +902,16 @@ setMethod("predict", signature(object = "sdm_result"),
                         values(p) <- pred
                         p <- mask(p, layers[[1]])
                         p
+                      },
+                      xgboost_mono = {
+                        layers <- terra::subset(layers, x$variables)
+                        vals <- terra::values(layers)
+                        vals <- as.matrix(vals)
+                        pred <- predict(x$model, vals)
+                        p <- layers[[1]]
+                        values(p) <- pred
+                        p <- mask(p, layers[[1]])
+                        p
                       }
               )
             } else {
@@ -908,6 +919,7 @@ setMethod("predict", signature(object = "sdm_result"),
                       maxent = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       maxnet = predict(x$model, layers, type = "cloglog", na.rm = T, ...),
                       brt = predict(x$model, layers, type = "response", na.rm = T, ...),
+                      brt_mono = predict(x$model, layers, type = "response", na.rm = T, ...),
                       rf_classification_ds = {
                         p <- predict(x$model, layers, type = "prob")
                         p[,2]
@@ -970,6 +982,10 @@ setMethod("predict", signature(object = "sdm_result"),
                       },
                       lgbm = predict(x$model, as.matrix(layers)),
                       xgboost = {
+                        layers <- layers[,x$variables]
+                        predict(x$model, as.matrix(layers))
+                      },
+                      xgboost_mono = {
                         layers <- layers[,x$variables]
                         predict(x$model, as.matrix(layers))
                       }

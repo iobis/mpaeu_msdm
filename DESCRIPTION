@@ -1,6 +1,6 @@
 Package: obissdm
 Title: Tools for generating SDMs used within the MPA Europe project
-Version: 1.0.0
+Version: 1.1.0
 Authors@R: 
     c(person("Silas", "Principe", , "s.principe@unesco.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-8059-6304")),

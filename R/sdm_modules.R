@@ -724,8 +724,10 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
     if (length(var_monotone) != (ncol(dat)-1)) {
       cli::cli_abort("Monotonicity constrain vector for BRT should be length 1 or equal to number of variables.")
     }
+    use_monotone <- TRUE
   } else {
     var_monotone <- rep(var_monotone, (ncol(dat)-1))
+    use_monotone <- FALSE
   }
 
   if (method == "iwlr" | method == "dwpr") {
@@ -805,7 +807,8 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   .cat_sdm(verbose, "Training and evaluating final model")
   
   full_fit <- gbm::gbm(presence ~ ., 
-                       distribution = "poisson",
+                       distribution = ifelse(method == "dwpr", 
+                                             "poisson", "bernoulli"),
                        data = dat,
                        weights = wt,
                        n.trees = best_tune$n_trees,
@@ -827,7 +830,7 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
   
   # Prepare returning object
   result <- list(
-    name = "brt",
+    name = ifelse(use_monotone, "brt_mono", "brt"),
     model = full_fit,
     variables = colnames(dat)[colnames(dat) != "presence"],
     n_pts = c(presence = sum(p),
@@ -1625,8 +1628,15 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
     if (length(monotone_constraints) != ncol(dat)) {
       cli::cli_abort("Monotonicity constrain vector for BRT should be length 1 or equal to number of variables.")
     }
+    use_monotone <- TRUE
   } else {
     monotone_constraints <- rep(monotone_constraints, ncol(dat))
+    use_monotone <- FALSE
+  }
+
+  if (is.character(scale_pos_weight)) {
+    scale_pos_weight <- ifelse(scale_pos_weight == "balanced",
+                               sum(p == 0)/sum(p), 1)
   }
   
   # Tune model
@@ -1695,7 +1705,7 @@ sdm_module_xgboost <- function(sdm_data, options = NULL, verbose = TRUE,
   
   # Prepare returning object
   result <- list(
-    name = "xgboost",
+    name = ifelse(use_monotone, "xgboost_mono", "xgboost"),
     model = full_fit,
     variables = colnames(dat)[colnames(dat) != "presence"],
     n_pts = c(presence = sum(p),
