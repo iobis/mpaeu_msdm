@@ -945,6 +945,14 @@ sdm_module_brt <- function(sdm_data, options = NULL, verbose = TRUE,
 #' @param verbose if `TRUE` display messages
 #' @param tune_blocks which blocks to use for cross-validation
 #' @param metric which metric to optimize in tuning using cross-validation
+#' 
+#' @details when method is "down-sampled", the internal down-sampling
+#' (using [randomForest::randomForest] argument `sampsize`) only opperates
+#' on the absences. Thus, in the rare cases where there are more presences than 
+#' absences it will, instead, directly sample the presences to reduce its number
+#' in order to achieve the same number of absences. This is only done at the
+#' block level. If, in total, the number of presences is higher than absences,
+#' then the function will fail and you should check the data.
 #'
 #' @return fitted model (`sdm_result` object)
 #' @export
@@ -1008,6 +1016,14 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
       mtry <- floor(sqrt(preds))
     } else {
       mtry <- max(floor(ncol(preds)/3), 1)
+    }
+  }
+
+  if (type == "down-sampled") {
+    total_p <- sum(p)
+    total_a <- length(p) - total_p
+    if (total_p > total_a) {
+      cli::cli_abort("Number of presences higher than absences, method `down-sampled` not possible. Check and try again.")
     }
   }
   
@@ -1143,6 +1159,14 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
     
     if (type == "down-sampled" | method == "classification") {
       pres <- sum(train_p) 
+      abs <- length(train_p) - pres
+      if (pres > abs) {
+        abs_id <- which(train_p == 0)
+        pres_id <- sample(which(train_p == 1), abs)
+        subsample <- c(pres_id, abs_id)
+        train_p <- train_p[subsample]
+        train_dat <- train_dat[subsample,]
+      }
       smpsize <- c("0" = pres, "1" = pres)
     } else {
       smpsize <- nrow(dat)
