@@ -29,6 +29,15 @@ fitted model (\code{sdm_result} object)
 \description{
 Fit Random Forest SDM using randomForest
 }
+\details{
+when method is "down-sampled", the internal down-sampling
+(using \link[randomForest:randomForest]{randomForest::randomForest} argument \code{sampsize}) only opperates
+on the absences. Thus, in the rare cases where there are more presences than
+absences it will, instead, directly sample the presences to reduce its number
+in order to achieve the same number of absences. This is only done at the
+block level. If, in total, the number of presences is higher than absences,
+then the function will fail and you should check the data.
+}
 \examples{
 \dontrun{
 sdm_species <- sdm_module_rf(sp_data)
