@@ -1166,6 +1166,7 @@ sdm_module_rf <- function(sdm_data, options = NULL, verbose = TRUE,
         subsample <- c(pres_id, abs_id)
         train_p <- train_p[subsample]
         train_dat <- train_dat[subsample,]
+        pres <- sum(train_p) 
       }
       smpsize <- c("0" = pres, "1" = pres)
     } else {
