@@ -1,3 +1,7 @@
+# obissdm 1.2.0
+
+* Added new information on log file
+
 # obissdm 1.1.0
 
 # obissdm 1.0.0

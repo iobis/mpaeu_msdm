@@ -230,6 +230,7 @@ gen_log <- function(algos){
     scientificName = NULL,
     group = NULL,
     hab_depth = NULL,
+    range_depth = NULL,
     model_date = NULL,
     model_acro = NULL,
     n_init_points = NULL,
