@@ -4,7 +4,7 @@
 \alias{manual_block}
 \title{Fast spatial cross-validation blocks generation}
 \usage{
-manual_block(data_pts, user_grid = NULL, k, iterations = 50)
+manual_block(data_pts, user_grid = NULL, k, iterations = 50, legacy = FALSE)
 }
 \arguments{
 \item{data_pts}{points in SF format. Should have a collumn named "presence"
@@ -17,6 +17,8 @@ of the points.}
 \item{k}{number of folds}
 
 \item{iterations}{number of iterations for sampling the points.}
+
+\item{legacy}{if \code{TRUE} uses the old version of the function (see note)}
 }
 \value{
 a list containing the folds, number of folds and division of records per fold.
@@ -25,6 +27,14 @@ a list containing the folds, number of folds and division of records per fold.
 This function will generate cross-validation blocks randomly based on a grid,
 which may also be of latitudinal blocks. This function is simpler than the
 \code{\link[blockCV:cv_spatial]{blockCV::cv_spatial()}}, but is aimed to be much faster.
+}
+\note{
+In a previous version the function would sample 1:k blocks based on the number of
+cells of the user_grid. While this works well, it adds a computational burden, because
+just a part of those cells are actually necessary. In the new version it samples 1:k
+blocks based on the cells at which a point is available. Since it is still completely random
+no difference in the results is expected, except a speed gain. It also helps to
+increase the chance of getting a good block division with less iterations.
 }
 \examples{
 \dontrun{

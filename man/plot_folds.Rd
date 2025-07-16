@@ -30,7 +30,7 @@ for testing}
 reference. The package \link{rnaturalearth} is needed for this}
 }
 \value{
-nothing
+ggplot2 object
 }
 \description{
 Plot the cross-validation folds produced with \code{\link[=mp_prepare_blocks]{mp_prepare_blocks()}}.

@@ -18,7 +18,8 @@ mp_prepare_blocks(
   min_block_size = 0.2,
   max_block_size = 20,
   min_class = 0,
-  verbose = TRUE
+  verbose = TRUE,
+  legacy = FALSE
 )
 }
 \arguments{
@@ -68,6 +69,8 @@ something too large and your points are not well distributed, then the function 
 in assigning the groups}
 
 \item{verbose}{if \code{TRUE}, print messages}
+
+\item{legacy}{if \code{TRUE}, uses the old version of the manual block function (see note on \code{\link[=manual_block]{manual_block()}})}
 }
 \value{
 an object of class sdm_dat containing the blocks

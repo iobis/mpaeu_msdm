@@ -41,6 +41,7 @@
 #' something too large and your points are not well distributed, then the function will probably fail
 #' in assigning the groups
 #' @param verbose if \code{TRUE}, print messages
+#' @param legacy if \code{TRUE}, uses the old version of the manual block function (see note on [manual_block()])
 #'
 #' @details
 #' Three types of cross-validation blocks are available:
@@ -63,7 +64,7 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
                               n_iterate = 50, retry_if_zero = FALSE,
                               min_block_size = 0.2, max_block_size = 20,
                               min_class = 0,
-                              verbose = TRUE) {
+                              verbose = TRUE, legacy = FALSE) {
   
   if (class(sdm_data)[1] != "sdm_dat") {
     cli::cli_abort("Supply an object of class sdm_dat produced with mp_prepare_data.")
@@ -142,7 +143,8 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
       blocks <- manual_block(sf_pts,
                              user_grid = manual_grid,
                              k = nfolds,
-                             iterations = n_iterate)
+                             iterations = n_iterate,
+                             legacy = legacy)
       
       if (retry_if_zero) {
         if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
@@ -206,7 +208,8 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
       blocks <- manual_block(sf_pts,
                              user_grid = manual_grid,
                              k = nfolds,
-                             iterations = n_iterate)
+                             iterations = n_iterate,
+                             legacy = legacy)
       if (retry_if_zero) {
         if (any(apply(blocks$records, 1, function(x) ifelse(x <= min_class, TRUE, FALSE)))) {
           if (verbose) cli::cli_alert_warning("Empty (or different than {.var min_class}) classes in one or more folds. Retrying with different resolution...")
@@ -293,9 +296,18 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
 #' of the points.
 #' @param k number of folds
 #' @param iterations number of iterations for sampling the points.
+#' @param legacy if \code{TRUE} uses the old version of the function (see note)
 #'
 #' @return a list containing the folds, number of folds and division of records per fold.
 #' @export
+#' 
+#' @note
+#' In a previous version the function would sample 1:k blocks based on the number of
+#' cells of the user_grid. While this works well, it adds a computational burden, because
+#' just a part of those cells are actually necessary. In the new version it samples 1:k 
+#' blocks based on the cells at which a point is available. Since it is still completely random
+#' no difference in the results is expected, except a speed gain. It also helps to 
+#' increase the chance of getting a good block division with less iterations.
 #'
 #' @examples
 #' \dontrun{
@@ -303,7 +315,7 @@ mp_prepare_blocks <- function(sdm_data, method = "blockcv",
 #' blocks <- manual_block(species_points, user_grid, k = 5)
 #' } 
 #' 
-manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50) {
+manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50, legacy = FALSE) {
   
   # Check if grid was supplied
   if (is.null(user_grid)) {
@@ -312,19 +324,24 @@ manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50) {
   }
   
   # create objects to store results
-  result <- list()
-  folds <- list()
+  result <- vector(mode = "list", length = iterations)
+  folds <- vector(mode = "list", length = iterations)
   
   # Get cell number
   which_cell <- terra::cellFromXY(user_grid, sf::st_coordinates(data_pts))
+  unique_cells <- unique(which_cell)
   
   # Sample for i iterations
-  for (i in 1:iterations) {
-    user_grid[] <- sample(1:k, ncell(user_grid), replace = T)
-    #cell_vals <- user_grid[which_cell][,1]
+  for (i in seq_len(iterations)) {
+    if (legacy) {
+      user_grid[] <- sample(seq_len(k), terra::ncell(user_grid), replace = T)
+    } else {
+      user_grid[unique_cells] <- sample(seq_len(k), length(unique_cells), replace = T)
+    }
+
     cell_vals <- terra::extract(user_grid, which_cell)[,1]
-    df_res <- data.frame(fold = 1:k, pres = NA, back = NA)
-    for (z in 1:k) {
+    df_res <- data.frame(fold = seq_len(k), pres = NA, back = NA)
+    for (z in seq_len(k)) {
       df_res$pres[z] <- length(data_pts$presence[data_pts$presence == 1 & cell_vals == z])
       df_res$back[z] <- length(data_pts$presence[data_pts$presence == 0 & cell_vals == z])
     }
@@ -345,7 +362,7 @@ manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50) {
   
   bblock <- result[[best]]
   
-  for (z in 1:k) {
+  for (z in seq_len(k)) {
     n_points$train_pres[z] <- sum(bblock$pres[bblock$fold != z])
     n_points$train_back[z] <- sum(bblock$back[bblock$fold != z])
     n_points$test_pres[z] <- sum(bblock$pres[bblock$fold == z])
@@ -378,7 +395,7 @@ manual_block <- function(data_pts, user_grid = NULL, k, iterations = 50) {
 #' @param include_map if \code{TRUE}, a base map of the continents is added for
 #'   reference. The package [rnaturalearth] is needed for this
 #'
-#' @return nothing
+#' @return ggplot2 object
 #' @export
 #'
 #' @examples
@@ -438,8 +455,8 @@ plot_folds <- function(sdm_data, block_type = NULL,
       ggplot2::theme_void() +
       ggplot2::xlab(NULL) + ggplot2::ylab(NULL)
   }
-  print(p)
-  return(invisible(NULL))
+
+  return(p)
 }
 
 
