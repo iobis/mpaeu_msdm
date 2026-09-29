@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "obissdm: Tools for generating SDMs used within the MPA Europe project"
+type: software
+version: 1.2.0
+date-released: 2025-07-16
+abstract: This package holds the functions used to generate the species distribution models (SDMs) for the MPA Europe project. It is the companion R package to the modelling pipeline in iobis/mpaeu_sdm, which operationalizes these functions to produce the project's SDMs and stacked SDMs (habitat maps). Although created to fulfill the targets of MPA Europe, the functions may be useful for other large-scale projects aiming to produce SDMs of marine species.
+url: https://github.com/iobis/mpaeu_msdm
+license: MIT
+authors:
+  - family-names: Principe
+    given-names: Silas C.
+    orcid: "https://orcid.org/0000-0002-8059-6304"
+  - family-names: Provoost
+    given-names: Pieter
+    orcid: "https://orcid.org/0000-0002-4236-0384"

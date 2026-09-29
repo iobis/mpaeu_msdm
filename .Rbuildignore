@@ -1,6 +1,8 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
+^CITATION\.cff$
+^\.zenodo\.json$
 ^data
 ^drafts
 ^drafts_data
