@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: If you use this software, please cite it as below.
-title: "obissdm: Tools for generating SDMs used within the MPA Europe project"
+title: "Tools for generating SDMs used within the MPA Europe project (obissdm R package)"
 type: software
 version: 1.2.0
 date-released: 2025-07-16

@@ -1,5 +1,5 @@
 {
-    "title": "obissdm: Tools for generating SDMs used within the MPA Europe project",
+    "title": "Tools for generating SDMs used within the MPA Europe project (obissdm R package)",
     "upload_type": "software",
     "description": "This R package (<code>obissdm</code>) holds the core functions used to generate species distribution models (SDMs) for the <a href=\"https://mpa-europe.eu\">MPA Europe project</a>. It is the companion package to the modelling pipeline in <a href=\"https://github.com/iobis/mpaeu_sdm\">iobis/mpaeu_sdm</a>, which operationalizes these functions to download and prepare occurrence and environmental data, fit and predict SDMs for more than 12,000 marine species, and stack the results into biogenic habitat maps. Although the package was created to fulfill the targets of MPA Europe, the functions may be useful for other large-scale projects aiming to produce SDMs of marine species. You can either use the package as is or download and edit the functions to build your own package. Further documentation is available at <a href=\"https://iobis.github.io/mpaeu_docs\">iobis.github.io/mpaeu_docs</a>.",
     "creators": [
